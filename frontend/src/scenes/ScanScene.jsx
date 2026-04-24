@@ -1,8 +1,8 @@
 import { useState, useRef } from 'react';
-import { enableXRLayer } from '@webspatial/react-sdk';
 import CoverageOverlay from '../components/CoverageOverlay';
 import PolicyCitation from '../components/PolicyCitation';
 import ClaimHUD from '../components/ClaimHUD';
+import { enableXRLayer } from '../lib/enableXRLayer';
 import { analyzeDamage, checkCoverage, imageToBase64 } from '../lib/api';
 
 // Hardcoded positions for policy citation cards — adjust after testing in Vision Pro

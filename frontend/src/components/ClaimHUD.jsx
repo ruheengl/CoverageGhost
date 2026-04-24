@@ -1,4 +1,4 @@
-import { enableXRLayer } from '@webspatial/react-sdk';
+import { enableXRLayer } from '../lib/enableXRLayer';
 
 export default function ClaimHUD({ claimId, adjuster, stage, progress }) {
   return (

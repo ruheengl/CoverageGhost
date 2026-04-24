@@ -1,4 +1,4 @@
-import { enableXRLayer } from '@webspatial/react-sdk';
+import { enableXRLayer } from '../lib/enableXRLayer';
 import { getColor } from '../lib/coverageColors';
 
 export default function PolicyCitation({ decision, position }) {

@@ -1,7 +1,7 @@
 // Scene 3: Agent scans driver's license, insurance card, vehicle registration
 // Claude Vision extracts fields → form auto-fills
 import { useState, useRef } from 'react';
-import { enableXRLayer } from '@webspatial/react-sdk';
+import { enableXRLayer } from '../lib/enableXRLayer';
 import { ocrDocument, imageToBase64 } from '../lib/api';
 
 export default function OcrCapture({ onComplete }) {

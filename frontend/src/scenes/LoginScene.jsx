@@ -1,8 +1,8 @@
 // Scenes 1-3: login + OCR document scan + policy verification
 import { useState } from 'react';
-import { enableXRLayer } from '@webspatial/react-sdk';
 import OcrCapture from '../components/OcrCapture';
 import ClaimHUD from '../components/ClaimHUD';
+import { enableXRLayer } from '../lib/enableXRLayer';
 
 export default function LoginScene({ onLogin }) {
   const [step, setStep] = useState('login'); // login | ocr | done
