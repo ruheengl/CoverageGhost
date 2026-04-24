@@ -1,4 +1,4 @@
-const BASE = 'http://localhost:3001';
+const BASE = '/api';
 
 export async function ocrDocument(imageBase64, document_type = 'auto') {
   const res = await fetch(`${BASE}/ocr-document`, {

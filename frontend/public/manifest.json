@@ -1,0 +1,18 @@
+{
+  "name": "Coverage Ghost",
+  "short_name": "CoverageGhost",
+  "description": "AI-powered spatial insurance claims companion",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#020617",
+  "theme_color": "#0d9488",
+  "icons": [
+    { "src": "/icons.svg", "sizes": "any", "type": "image/svg+xml" }
+  ],
+  "main_scene": {
+    "type": "volume",
+    "defaultSize": { "width": 800, "height": 600, "depth": 400 },
+    "worldAlignment": "automatic",
+    "baseplateVisibility": "hidden"
+  }
+}
