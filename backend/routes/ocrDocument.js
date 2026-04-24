@@ -19,10 +19,10 @@ router.post('/', async (req, res) => {
     if (!imageBase64) return res.status(400).json({ error: 'No image provided' });
 
     // DEBUG: save incoming image to disk
-    const ext = mediaType.split('/')[1] || 'jpg';
-    const filename = `ocr-${Date.now()}.${ext}`;
-    fs.writeFileSync(path.join(DEBUG_DIR, filename), Buffer.from(imageBase64, 'base64'));
-    console.log(`[DEBUG] OCR image saved: debug-images/${filename} (${Math.round(imageBase64.length * 0.75 / 1024)}KB)`);
+    // const ext = mediaType.split('/')[1] || 'jpg';
+    // const filename = `ocr-${Date.now()}.${ext}`;
+    // fs.writeFileSync(path.join(DEBUG_DIR, filename), Buffer.from(imageBase64, 'base64'));
+    // console.log(`[DEBUG] OCR image saved: debug-images/${filename} (${Math.round(imageBase64.length * 0.75 / 1024)}KB)`);
 
     const data = await createChatCompletion({
       messages: [
