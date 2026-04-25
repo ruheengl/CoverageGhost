@@ -1,63 +1,68 @@
-// Scenes 1-3: login + OCR document scan + policy verification
 import { useState } from 'react';
-import OcrCapture from '../components/OcrCapture';
-import ClaimHUD from '../components/ClaimHUD';
-import { enableXRLayer } from '../lib/enableXRLayer';
+import AppBackground from '../components/AppBackground';
 
 export default function LoginScene({ onLogin }) {
-  const [step, setStep] = useState('login'); // login | ocr | done
-  const [claimId, setClaimId] = useState('CLM-2024-8821');
-  const [adjuster, setAdjuster] = useState('Agent Rivera');
-  const [ocrFields, setOcrFields] = useState({});
+  const [agentId, setAgentId] = useState('');
+  const [password, setPassword] = useState('');
 
-  function handleOcrComplete(fields) {
-    setOcrFields(fields);
-    setStep('done');
+  function handleLogin() {
+    onLogin({ claimId: agentId || 'CLM-2024-8821', adjuster: agentId || 'Agent Rivera', ocrFields: {} });
   }
 
-  if (step === 'ocr') return <OcrCapture onComplete={handleOcrComplete} />;
-
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column',
-      alignItems: 'center', justifyContent: 'center', fontFamily: 'Arial' }}>
-      <div style={{
-        width: 360, padding: 32,
-        background: 'rgba(15,23,42,0.85)', backdropFilter: 'blur(20px)',
-        borderRadius: 20, border: '1px solid rgba(13,148,136,0.3)', color: 'white',
-        ...enableXRLayer({ zOffset: 0.3 })
+    <div style={{ width: '100vw', height: '100vh', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <AppBackground />
+      <div className="fade-up" style={{
+        position: 'relative', zIndex: 10,
+        background: 'rgba(52,52,52,0.88)',
+        backdropFilter: 'blur(24px)',
+        WebkitBackdropFilter: 'blur(24px)',
+        borderRadius: 28,
+        border: '1px solid rgba(255,255,255,0.10)',
+        boxShadow: '0 12px 60px rgba(0,0,0,0.5)',
+        padding: 10,
+        width: 420,
       }}>
-        <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>Coverage Ghost</div>
-        <div style={{ fontSize: 13, opacity: 0.6, marginBottom: 24 }}>Insurance Field Companion</div>
-        <label style={{ fontSize: 12, opacity: 0.7 }}>Claim ID</label>
-        <input value={claimId} onChange={e => setClaimId(e.target.value)}
-          style={{ width: '100%', marginTop: 4, marginBottom: 16, padding: '8px 12px',
-            background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)',
-            borderRadius: 8, color: 'white', fontSize: 14, boxSizing: 'border-box' }} />
-        <label style={{ fontSize: 12, opacity: 0.7 }}>Adjuster Name</label>
-        <input value={adjuster} onChange={e => setAdjuster(e.target.value)}
-          style={{ width: '100%', marginTop: 4, marginBottom: 16, padding: '8px 12px',
-            background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)',
-            borderRadius: 8, color: 'white', fontSize: 14, boxSizing: 'border-box' }} />
-        {step === 'done' && ocrFields.name && (
-          <div style={{ background: 'rgba(13,148,136,0.15)', borderRadius: 8, padding: 12, marginBottom: 16 }}>
-            <div style={{ fontSize: 11, color: '#99f6e4', marginBottom: 4 }}>OCR auto-filled</div>
-            <div style={{ fontSize: 13 }}>{ocrFields.name} — {ocrFields.policy_number}</div>
+        {/* Purple inner card */}
+        <div style={{
+          background: 'linear-gradient(155deg, #9095c8 0%, #7e86be 100%)',
+          borderRadius: 20,
+          padding: '32px 28px 28px',
+        }}>
+          <div style={{ textAlign: 'center', fontSize: 30, fontWeight: 800, color: '#1a3ecf', letterSpacing: '-0.02em', marginBottom: 32 }}>
+            LOGO
           </div>
-        )}
-        {step === 'login' && (
-          <button onClick={() => setStep('ocr')}
-            style={{ width: '100%', padding: '10px', background: 'rgba(255,255,255,0.08)',
-              border: '1px solid rgba(255,255,255,0.2)', borderRadius: 10, color: 'white',
-              fontSize: 14, cursor: 'pointer', marginBottom: 8 }}>
-            Scan documents (OCR)
+          <label style={{ fontSize: 13, fontWeight: 500, color: 'rgba(20,20,50,0.80)', display: 'block', marginBottom: 6 }}>
+            Agent ID<span style={{ color: '#cc2222' }}>*</span>
+          </label>
+          <input
+            value={agentId}
+            onChange={e => setAgentId(e.target.value)}
+            placeholder="Select Content"
+            style={{ width: '100%', padding: '11px 14px', background: 'rgba(245,246,252,0.97)', borderRadius: 10, fontSize: 14, color: '#1a1a2e', marginBottom: 16, display: 'block', boxSizing: 'border-box' }}
+          />
+          <label style={{ fontSize: 13, fontWeight: 500, color: 'rgba(20,20,50,0.80)', display: 'block', marginBottom: 6 }}>
+            Password<span style={{ color: '#cc2222' }}>*</span>
+          </label>
+          <input
+            type="password"
+            value={password}
+            onChange={e => setPassword(e.target.value)}
+            placeholder="Select Content"
+            style={{ width: '100%', padding: '11px 14px', background: 'rgba(245,246,252,0.97)', borderRadius: 10, fontSize: 14, color: '#1a1a2e', display: 'block', boxSizing: 'border-box' }}
+          />
+        </div>
+        <div style={{ padding: '14px 14px 10px' }}>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 14 }}>
+            <button style={{ background: 'rgba(255,255,255,0.10)', color: 'white', fontSize: 13, fontWeight: 500, padding: '7px 16px', borderRadius: 10, border: '1px solid rgba(255,255,255,0.18)' }}>
+              Forgot Password?
+            </button>
+          </div>
+          <button onClick={handleLogin} style={{ width: '100%', padding: '14px', background: '#1a3ecf', border: 'none', borderRadius: 12, color: 'white', fontSize: 16, fontWeight: 700, cursor: 'pointer', letterSpacing: '0.01em' }}>
+            Login
           </button>
-        )}
-        <button onClick={() => onLogin({ claimId, adjuster, ocrFields })}
-          style={{ width: '100%', padding: '12px', background: '#0d9488',
-            border: 'none', borderRadius: 10, color: 'white', fontSize: 15,
-            fontWeight: 700, cursor: 'pointer' }}>
-          Open Claim
-        </button>
+          <div style={{ width: 48, height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.22)', margin: '14px auto 4px' }} />
+        </div>
       </div>
     </div>
   );

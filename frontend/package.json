@@ -12,6 +12,7 @@
   "dependencies": {
     "@mkkellogg/gaussian-splats-3d": "^0.4.7",
     "@sparkjsdev/spark": "^2.0.0",
+    "@vitejs/plugin-basic-ssl": "^2.3.0",
     "@webspatial/react-sdk": "^1.6.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",

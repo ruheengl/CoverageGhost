@@ -3,6 +3,7 @@ import LoginScene from './scenes/LoginScene';
 import ScanScene from './scenes/ScanScene';
 import AnnotateScene from './scenes/AnnotateScene';
 import ReviewScene from './scenes/ReviewScene';
+import './index.css';
 
 export default function App() {
   const [scene, setScene] = useState('login');
