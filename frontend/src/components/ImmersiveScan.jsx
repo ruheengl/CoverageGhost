@@ -27,6 +27,7 @@ export default function ImmersiveScan({ onCapture, onExit }) {
     let recognition = null;
     let lastHitPoint = null;
     let lastViewerT = null, lastViewerFwd = null;
+    let lastFloorY = 0; // real floor Y in current reference space, updated via hit-test
     let bucketCooldowns = new Array(BUCKETS).fill(0);
     let lastPanelDraw = 0;
     let lastRingUpdate = 0;
@@ -35,6 +36,9 @@ export default function ImmersiveScan({ onCapture, onExit }) {
     let ringMeshes = [];
     const scanId = Date.now();
     let analysisInFlight = false;
+    let lastControllerPoses = []; // cached each XR frame from targetRaySpace
+    let lastDebugPt = null; // last placed wheel point for on-screen debug
+    let grabbedSphereIdx = -1; // index of wheel sphere currently being dragged (-1 = none)
 
     // Head-locked status panel (text only — no 2D ring)
     const mCanvas = document.createElement('canvas');
@@ -78,7 +82,16 @@ export default function ImmersiveScan({ onCapture, onExit }) {
       mc.font = '28px Arial'; mc.fillStyle = '#34d399';
       label.split('\n').forEach((l, i) => mc.fillText(l, 256, 126 + i * 36));
       mc.fillStyle = 'rgba(255,255,255,0.4)'; mc.font = '17px Arial';
-      mc.fillText('Pull trigger to place', 256, 226);
+      mc.fillText('Pull trigger to place', 256, 210);
+
+      // Debug: show last placed point coordinates
+      if (lastDebugPt) {
+        mc.fillStyle = '#fbbf24'; mc.font = '14px monospace';
+        mc.fillText(
+          `last: x=${lastDebugPt.x.toFixed(3)}  y=${lastDebugPt.y.toFixed(3)}  z=${lastDebugPt.z.toFixed(3)}`,
+          256, 238
+        );
+      }
       mTex.needsUpdate = true;
     }
 
@@ -170,18 +183,17 @@ export default function ImmersiveScan({ onCapture, onExit }) {
 
     function createScanRing(scene) {
       ringMeshes = [];
+      // Vertical pillars — visible from standing height, not flat on floor
+      const geo = new THREE.BoxGeometry(0.06, 0.5, 0.06);
       for (let i = 0; i < BUCKETS; i++) {
         const a = (i / BUCKETS) * Math.PI * 2;
-        const arcLen = (2 * Math.PI * scanRadius / BUCKETS) * 0.80;
-        const geo = new THREE.BoxGeometry(arcLen, 0.05, 0.05);
         const mat = new THREE.MeshBasicMaterial({ color: 0x1e293b });
         const mesh = new THREE.Mesh(geo, mat);
         mesh.position.set(
           carCenter.x + Math.cos(a) * scanRadius,
-          0.025,
+          0.25, // base at floor, top at 0.5m
           carCenter.z + Math.sin(a) * scanRadius
         );
-        mesh.rotation.y = -(a + Math.PI / 2);
         scene.add(mesh);
         ringMeshes.push(mesh);
       }
@@ -271,7 +283,46 @@ export default function ImmersiveScan({ onCapture, onExit }) {
 
     function fallbackFloorPoint(dist) {
       if (!lastViewerT || !lastViewerFwd) return null;
-      return { x: lastViewerT.x + lastViewerFwd.x * dist, y: 0, z: lastViewerT.z + lastViewerFwd.z * dist };
+      return { x: lastViewerT.x + lastViewerFwd.x * dist, y: lastFloorY, z: lastViewerT.z + lastViewerFwd.z * dist };
+    }
+
+    function recomputeCarGeometry(scene) {
+      const pts = wheelPoints;
+      carCenter = {
+        x: pts.reduce((s, p) => s + p.x, 0) / 4,
+        z: pts.reduce((s, p) => s + p.z, 0) / 4,
+      };
+      const frontMidX = (pts[0].x + pts[1].x) / 2, frontMidZ = (pts[0].z + pts[1].z) / 2;
+      const rearMidX  = (pts[2].x + pts[3].x) / 2, rearMidZ  = (pts[2].z + pts[3].z) / 2;
+      carLength = Math.max(Math.sqrt((frontMidX - rearMidX) ** 2 + (frontMidZ - rearMidZ) ** 2), 2);
+      const carWidth = Math.max(
+        Math.sqrt((pts[0].x - pts[1].x) ** 2 + (pts[0].z - pts[1].z) ** 2),
+        Math.sqrt((pts[2].x - pts[3].x) ** 2 + (pts[2].z - pts[3].z) ** 2),
+        1
+      );
+      scanRadius = Math.sqrt((carLength / 2) ** 2 + (carWidth / 2) ** 2) + 0.3;
+      // Remove existing ring meshes and rebuild
+      ringMeshes.forEach(m => scene.remove(m));
+      ringMeshes = [];
+      createScanRing(scene);
+    }
+
+    // Returns index of the wheel sphere whose center is within 0.25m of the controller ray, or -1
+    function raySphereHit(poses, spheres) {
+      for (const p of poses) {
+        const quat = new THREE.Quaternion(p.qx, p.qy, p.qz, p.qw);
+        const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(quat);
+        const origin = new THREE.Vector3(p.x, p.y, p.z);
+        for (let i = 0; i < spheres.length; i++) {
+          if (!spheres[i].visible) continue;
+          const toSphere = spheres[i].position.clone().sub(origin);
+          const proj = toSphere.dot(dir);
+          if (proj < 0) continue;
+          const dist = origin.clone().addScaledVector(dir, proj).distanceTo(spheres[i].position);
+          if (dist < 0.25) return i;
+        }
+      }
+      return -1;
     }
 
     async function start() {
@@ -284,8 +335,11 @@ export default function ImmersiveScan({ onCapture, onExit }) {
       } catch (e) { console.warn('[ImmersiveScan] camera:', e.message); }
 
       try {
+        // unbounded disables Guardian boundary warnings without changing the coordinate system.
+        // local-floor keeps y=0 at the physical floor, which rayFloorIntersect depends on.
         session = await navigator.xr.requestSession('immersive-ar', {
-          optionalFeatures: ['unbounded', 'local-floor', 'hit-test', 'hand-tracking'],
+          requiredFeatures: ['local-floor', 'unbounded'],
+          optionalFeatures: ['hit-test', 'hand-tracking'],
         });
         sessionRef.current = session;
       } catch (e) { console.error('[ImmersiveScan] XR:', e); onExit(); return; }
@@ -293,16 +347,12 @@ export default function ImmersiveScan({ onCapture, onExit }) {
       renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
       renderer.setPixelRatio(window.devicePixelRatio);
       renderer.xr.enabled = true;
+      renderer.xr.setReferenceSpaceType('local-floor');
       await renderer.xr.setSession(session);
       document.body.appendChild(renderer.domElement);
       renderer.domElement.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;z-index:9999;';
 
-      try { refSpace = await session.requestReferenceSpace('unbounded'); }
-      catch (_) {
-        refSpace = await session.requestReferenceSpace('local-floor').catch(
-          () => session.requestReferenceSpace('local')
-        );
-      }
+      refSpace = renderer.xr.getReferenceSpace();
       const viewerSpace = await session.requestReferenceSpace('viewer');
       try { hitTestSource = await session.requestHitTestSource({ space: viewerSpace }); }
       catch (e) { console.warn('[ImmersiveScan] no hit-test, using fallback'); }
@@ -346,6 +396,15 @@ export default function ImmersiveScan({ onCapture, onExit }) {
         scene.add(m);
         return m;
       });
+
+      // Floor cursor — ring that follows ray-floor intersection during setup
+      const cursor = new THREE.Mesh(
+        new THREE.RingGeometry(0.07, 0.12, 32),
+        new THREE.MeshBasicMaterial({ color: 0x34d399, side: THREE.DoubleSide, transparent: true, opacity: 0.85 })
+      );
+      cursor.rotation.x = -Math.PI / 2;
+      cursor.visible = false;
+      scene.add(cursor);
 
       // Controller rays
       const rayGeo = new THREE.BufferGeometry().setFromPoints([
@@ -401,8 +460,9 @@ export default function ImmersiveScan({ onCapture, onExit }) {
           dPanel.quaternion.copy(quat);
         }
 
-        // Controller rays from targetRaySpace
+        // Controller rays — update pose cache for floor intersection on trigger
         leftRay.visible = false; rightRay.visible = false;
+        lastControllerPoses = [];
         for (const src of session.inputSources) {
           if (!src.targetRaySpace) continue;
           const rp = frame.getPose(src.targetRaySpace, refSpace);
@@ -412,12 +472,35 @@ export default function ImmersiveScan({ onCapture, onExit }) {
           ray.position.set(rt.x, rt.y, rt.z);
           ray.quaternion.set(rq.x, rq.y, rq.z, rq.w);
           ray.visible = true;
+          // Cache position + orientation so selectend can compute floor intersection
+          lastControllerPoses.push({ x: rt.x, y: rt.y, z: rt.z, qx: rq.x, qy: rq.y, qz: rq.z, qw: rq.w });
         }
 
-        // Hit-test during setup
+        // Hit-test during setup — track real floor Y in current reference space
         if (hitTestSource && WHEEL_PHASES.includes(phase)) {
           const hits = frame.getHitTestResults(hitTestSource);
-          if (hits.length > 0) lastHitPoint = hits[0].getPose(refSpace).transform.position;
+          if (hits.length > 0) lastFloorY = hits[0].getPose(refSpace).transform.position.y;
+        }
+
+        // Floor cursor — follows ray intersection during setup so user sees landing point
+        if (WHEEL_PHASES.includes(phase)) {
+          const floorPt = rayFloorIntersect(lastControllerPoses, lastFloorY);
+          if (floorPt) {
+            cursor.position.set(floorPt.x, lastFloorY + 0.01, floorPt.z);
+            cursor.visible = true;
+          } else {
+            cursor.visible = false;
+          }
+        } else {
+          cursor.visible = false;
+        }
+
+        // Grabbed sphere follows ray-floor intersection
+        if (grabbedSphereIdx !== -1) {
+          const floorPt = rayFloorIntersect(lastControllerPoses, lastFloorY);
+          if (floorPt) {
+            wheelSpheres[grabbedSphereIdx].position.set(floorPt.x, lastFloorY + 0.08, floorPt.z);
+          }
         }
 
         // Scanning logic
@@ -441,43 +524,58 @@ export default function ImmersiveScan({ onCapture, onExit }) {
         renderer.render(scene, xrCam);
       });
 
+      // Grab start — if ray is near a placed sphere, grab it instead of placing a new one
+      session.addEventListener('selectstart', () => {
+        if (phase === 'complete') return;
+        const hitIdx = raySphereHit(lastControllerPoses, wheelSpheres);
+        if (hitIdx !== -1) {
+          grabbedSphereIdx = hitIdx;
+          wheelSpheres[hitIdx].material.color.set(0xffffff); // flash white while held
+        }
+      });
+
       // Trigger handler
       session.addEventListener('selectend', () => {
         if (phase === 'complete') return;
 
+        // Release grab — update wheel point and recompute car geometry
+        if (grabbedSphereIdx !== -1) {
+          const sp = wheelSpheres[grabbedSphereIdx].position;
+          wheelPoints[grabbedSphereIdx] = { x: sp.x, y: lastFloorY, z: sp.z };
+          wheelSpheres[grabbedSphereIdx].material.color.set(WHEEL_COLORS[grabbedSphereIdx]);
+          grabbedSphereIdx = -1;
+          // If all 4 placed and in scanning, recompute ring
+          if (wheelPoints.every(Boolean) && phase === 'scanning') recomputeCarGeometry(scene);
+          return;
+        }
+
         const phaseIdx = WHEEL_PHASES.indexOf(phase);
 
         if (phaseIdx !== -1) {
-          const fallbackDists = [2, 3.5, 5.5, 4]; // rough wheel positions if no hit-test
-          const pt = lastHitPoint ?? fallbackFloorPoint(fallbackDists[phaseIdx]);
+          // Primary: intersect the controller ray with the floor plane (y=0)
+          // This places the sphere exactly where the ray beam touches the ground.
+          const pt = rayFloorIntersect(lastControllerPoses, lastFloorY) ?? fallbackFloorPoint(3);
+
+          // Debug: log viewer Y, controller Y, floor Y, and computed intersection
+          console.log('[ImmersiveScan] placement debug', {
+            viewerY: lastViewerT?.y?.toFixed(3),
+            lastFloorY: lastFloorY?.toFixed(3),
+            controllers: lastControllerPoses.map(p => ({ y: p.y.toFixed(3), qy: p.qy.toFixed(3) })),
+            intersectPt: pt ? { x: pt.x.toFixed(3), y: pt.y.toFixed(3), z: pt.z.toFixed(3) } : null,
+          });
+
           if (pt) {
-            wheelPoints[phaseIdx] = { x: pt.x, y: 0, z: pt.z };
-            wheelSpheres[phaseIdx].position.set(pt.x, 0.08, pt.z);
+            lastDebugPt = pt;
+            wheelPoints[phaseIdx] = { x: pt.x, y: pt.y, z: pt.z };
+            wheelSpheres[phaseIdx].position.set(pt.x, pt.y + 0.08, pt.z);
             wheelSpheres[phaseIdx].visible = true;
-            lastHitPoint = null;
 
             const nextIdx = phaseIdx + 1;
             if (nextIdx < WHEEL_PHASES.length) {
               phase = WHEEL_PHASES[nextIdx];
               drawSetup(nextIdx);
             } else {
-              // All 4 wheels placed — compute car geometry
-              const pts = wheelPoints;
-              carCenter = {
-                x: pts.reduce((s, p) => s + p.x, 0) / 4,
-                z: pts.reduce((s, p) => s + p.z, 0) / 4,
-              };
-              const frontMidX = (pts[0].x + pts[1].x) / 2, frontMidZ = (pts[0].z + pts[1].z) / 2;
-              const rearMidX  = (pts[2].x + pts[3].x) / 2, rearMidZ  = (pts[2].z + pts[3].z) / 2;
-              carLength = Math.max(Math.sqrt((frontMidX - rearMidX) ** 2 + (frontMidZ - rearMidZ) ** 2), 2);
-              const carWidth = Math.max(
-                Math.sqrt((pts[0].x - pts[1].x) ** 2 + (pts[0].z - pts[1].z) ** 2),
-                Math.sqrt((pts[2].x - pts[3].x) ** 2 + (pts[2].z - pts[3].z) ** 2),
-                1
-              );
-              // Ring radius = corner-to-center + 1.0m buffer
-              scanRadius = Math.sqrt((carLength / 2) ** 2 + (carWidth / 2) ** 2) + 1.0;
-              createScanRing(scene);
+              recomputeCarGeometry(scene);
               phase = 'scanning';
               drawStatus();
             }
@@ -543,4 +641,19 @@ function rrect(ctx, x, y, w, h, r) {
   ctx.lineTo(x, y + r);
   ctx.quadraticCurveTo(x, y, x + r, y);
   ctx.closePath();
+}
+
+// Intersect cached controller ray(s) with the floor plane at floorY.
+// floorY comes from hit-test so it's correct regardless of reference space type.
+// Returns { x, y: floorY, z } or null if no ray reaches the floor.
+function rayFloorIntersect(poses, floorY = 0) {
+  for (const p of poses) {
+    const quat = new THREE.Quaternion(p.qx, p.qy, p.qz, p.qw);
+    const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(quat);
+    if (Math.abs(dir.y) < 0.01) continue; // nearly horizontal — skip
+    const t = (floorY - p.y) / dir.y;    // solve: p.y + t*dir.y = floorY
+    if (t < 0) continue;                  // floor is behind the ray
+    return { x: p.x + dir.x * t, y: floorY, z: p.z + dir.z * t };
+  }
+  return null;
 }
