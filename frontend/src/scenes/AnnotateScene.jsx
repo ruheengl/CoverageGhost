@@ -1,11 +1,19 @@
 import StickyNote from '../components/StickyNote';
 import GaussianViewer from '../components/GaussianViewer';
 
+const COVERAGE_COLORS = { green: '#34d399', red: '#f87171', amber: '#fbbf24', gray: '#94a3b8' };
+const DIR_LABELS = ['Front', 'Front-Right', 'Right', 'Rear-Right', 'Rear', 'Rear-Left', 'Left', 'Front-Left'];
+
+function angleLabel(deg) {
+  return `${DIR_LABELS[Math.round(deg / 45) % 8]} — ${Math.round(deg)}°`;
+}
+
 export default function AnnotateScene({
   claim,
   damageData,
   coverageDecisions = [],
   splatUrl,
+  voiceNotes = [],
   onComplete,
 }) {
   const notes = coverageDecisions.map((decision, index) => ({
@@ -21,31 +29,71 @@ export default function AnnotateScene({
         <GaussianViewer splatUrl={splatUrl} />
       </div>
 
-      <div style={{ position: 'relative', zIndex: 1, padding: 24 }}>
-        <div style={{ maxWidth: 420, padding: 20, borderRadius: 16, background: 'rgba(15,23,42,0.82)' }}>
-          <div style={{ fontSize: 24, fontWeight: 700, marginBottom: 8 }}>Annotation Review</div>
-          <div style={{ fontSize: 14, opacity: 0.75, marginBottom: 12 }}>
-            Claim {claim?.claimId || 'Unknown'} with {notes.length} coverage annotations.
+      <div style={{ position: 'relative', zIndex: 1, padding: 24, display: 'flex', gap: 16, alignItems: 'flex-start' }}>
+        {/* Coverage annotations panel */}
+        <div style={{ maxWidth: 380, padding: 20, borderRadius: 16, background: 'rgba(15,23,42,0.82)', backdropFilter: 'blur(12px)' }}>
+          <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 6 }}>Annotation Review</div>
+          <div style={{ fontSize: 13, opacity: 0.65, marginBottom: 16 }}>
+            Claim {claim?.claimId || 'Unknown'} · {notes.length} coverage area{notes.length !== 1 ? 's' : ''}
           </div>
-          <div style={{ fontSize: 13, opacity: 0.85 }}>
-            {damageData ? 'Damage data loaded and ready for review.' : 'No damage data available yet.'}
-          </div>
+          {notes.map((note, i) => (
+            <div key={i} style={{
+              marginBottom: 10, padding: '10px 12px', borderRadius: 10,
+              background: 'rgba(255,255,255,0.05)',
+              borderLeft: `3px solid ${COVERAGE_COLORS[note.color] || '#94a3b8'}`,
+            }}>
+              <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 3 }}>{note.name}</div>
+              <div style={{ fontSize: 12, opacity: 0.65 }}>{note.description}</div>
+            </div>
+          ))}
+          {notes.length === 0 && (
+            <div style={{ fontSize: 13, opacity: 0.4, marginBottom: 12 }}>No coverage data</div>
+          )}
           <button
             onClick={onComplete}
             style={{
-              marginTop: 16,
-              padding: '12px 18px',
-              border: 'none',
-              borderRadius: 10,
-              background: '#0d9488',
-              color: 'white',
-              fontSize: 14,
-              fontWeight: 700,
-              cursor: 'pointer',
+              marginTop: 12, padding: '12px 18px', border: 'none', borderRadius: 10,
+              background: '#0d9488', color: 'white', fontSize: 14, fontWeight: 700,
+              cursor: 'pointer', width: '100%',
             }}
           >
             Continue to Summary
           </button>
+        </div>
+
+        {/* Voice notes sidebar */}
+        <div style={{
+          minWidth: 270, maxWidth: 310, padding: 16, borderRadius: 16,
+          background: 'rgba(15,23,42,0.82)', backdropFilter: 'blur(12px)',
+          border: '1px solid rgba(251,191,36,0.2)',
+        }}>
+          <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+            🎙 Field Notes
+            {voiceNotes.length > 0 && (
+              <span style={{
+                background: '#fbbf24', color: '#020617', borderRadius: 20,
+                padding: '1px 8px', fontSize: 11, fontWeight: 700,
+              }}>
+                {voiceNotes.length}
+              </span>
+            )}
+          </div>
+          {voiceNotes.length === 0 ? (
+            <div style={{ fontSize: 12, opacity: 0.35 }}>No voice notes captured</div>
+          ) : (
+            voiceNotes.map((note, i) => (
+              <div key={i} style={{
+                marginBottom: 10, padding: '8px 10px', borderRadius: 10,
+                background: 'rgba(255,255,255,0.05)',
+                borderLeft: '3px solid #fbbf24',
+              }}>
+                <div style={{ fontSize: 10, opacity: 0.5, marginBottom: 4, textTransform: 'uppercase', letterSpacing: 1 }}>
+                  {angleLabel(note.angle)}
+                </div>
+                <div style={{ fontSize: 13 }}>{note.text}</div>
+              </div>
+            ))
+          )}
         </div>
       </div>
 

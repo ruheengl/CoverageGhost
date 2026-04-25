@@ -37,9 +37,7 @@ The app is built with the WebSpatial SDK (React) and runs in the browser on both
 | Device | Live Preview | `capture` input | Notes |
 |---|---|---|---|
 | Meta Quest | ✅ Works | ✅ Works | Primary target |
-| PICO | ✅ Works | ✅ Works | Hackathon target |
-| Apple Vision Pro | ❌ Blocked | ❌ Broken | Dropped — enterprise camera API only |
- 
+| PICO | ✅ Works | ✅ Works | Hackathon target | 
 ---
  
 ## The Four Required Pillars
@@ -81,32 +79,44 @@ Agent puts on headset → opens LUMEN URL in browser
  
 ### Phase 2 — Capture
 ```
-Exterior scan
-→ Agent records 60s walkthrough video around vehicle
-→ getUserMedia captures video (or file upload fallback on Vision Pro)
-→ Frames extracted at 2fps (~120 JPEG images)
-→ POSTed to World Labs API → job queued
-→ Progress shown in ScanPanel ("Processing exterior scan...")
-→ exterior.spz downloaded when ready
- 
-Interior scan
-→ Agent opens car door, records 30s cabin sweep
-→ Same pipeline → interior.spz downloaded
+Agent enters WebXR immersive-ar session (ImmersiveScan.jsx)
+
+Setup (two-tap car placement):
+→ Head-locked panel: "Tap front bumper on ground"
+→ WebXR hit-test ray → stores frontPoint in world coords
+→ "Tap rear bumper on ground" → stores rearPoint
+→ carCenter, carLength, scanRadius computed from the two points
+→ Fallback: if hit-test unavailable, fixed 2m / 4.5m forward placement
+
+Angle-bucket scan (Polycam-style):
+→ 18 buckets at 20° intervals around car center
+→ Per XR frame: compute agent azimuth via atan2, determine bucket index
+→ Distance gate: if agent < 0.8m from car edge → pause + "Step back"
+→ For each bucket: capture sharpest frame (pixel variance) at ≤ 500ms interval
+→ Progress ring shows 18 arcs, gray → teal as buckets fill
+→ Annotation: agent pulls trigger → voice note (Web Speech API) recorded
+  - Last clean frame frozen for that bucket before annotation opens
+  - Transcript saved with bucket angle
+  - Pull trigger again → note saved, scan resumes
+→ 12+ buckets filled + trigger → scan complete
+
+Processing (ScanScene.jsx 'generating' stage):
+→ First captured frame sent to /analyze-damage + /check-coverage (AI runs in parallel)
+→ Fake "World Labs Marble" progress animation (6 seconds, 0→100%)
+→ teex-car.spz loaded as splatUrl when both AI + animation complete
 ```
- 
 
 ### Phase 3 — Annotate
 ```
-Both splats load into WebXR Full Stage session
-→ Agent reviews exterior splat in immersive 3D
-→ Gazes at / points controller at damage zone
-→ Dwell or trigger → zone ring highlights
-→ Agent records voice note describing damage (Web Speech API — on-device, zero latency)
-→ Live transcript streams to VoiceNotePanel
-→ On stop: transcript sent to Claude API
-→ Tamu Chat returns structured damage JSON (type, severity, cost range, urgency)
-→ AI sticky note card placed in 3D at zone position (WorldAnchor)
-→ Agent switches to interior splat, repeats
+AnnotateScene receives:
+→ splatUrl ('/assets/teex-car.spz') → GaussianViewer renders 3D splat
+→ coverageDecisions → StickyNote overlays + color-coded annotation list
+→ voiceNotes [{text, angle}] → Field Notes sidebar (right panel)
+  - Each note shows directional label (Front/Left/Rear etc.) + transcript
+  - Angle computed from bucket index during scan
+
+Agent reviews 3D model with coverage color overlay and voice note sidebar
+→ Continues to ReviewScene for claim summary
 ```
  
 ### Phase 4 — Review
@@ -238,5 +248,7 @@ Place in `frontend/public/assets/`:
 
 ## Spatial Architecture
 - **WebSpatial SDK** — floating 3D UI panels for login/review/annotate. Scene configured as `volume` via `frontend/public/manifest.json` `main_scene` field.
-- **WebXR `immersive-ar`** — scan phase only. Activates color passthrough on Quest 3 / PICO 4. Head-locked Three.js capture button lets user walk around vehicle. Implemented in `ImmersiveScan.jsx`.
-- **Detection in `ScanScene.jsx`**: WebSpatial shell (`/WebSpatial\//.test(userAgent)`) → CameraCapture; WebXR AR supported → ImmersiveScan; neither → CameraCapture fallback (desktop).
+- **WebXR `immersive-ar`** — scan phase only. Activates color passthrough on Quest 3 / PICO 4. `ImmersiveScan.jsx` manages the full scan state machine: two-tap car placement (hit-test), angle-bucket frame capture (18 × 20° arcs), voice annotation via Web Speech API, fake splat generation animation.
+- **Detection in `ScanScene.jsx`**: WebSpatial shell (`/WebSpatial\//.test(userAgent)`) → CameraCapture (PICO path); WebXR AR supported → ImmersiveScan (Quest path); neither → CameraCapture fallback (desktop).
+- **Gaussian splat**: `teex-car.spz` served from `/assets/`. Displayed in `GaussianViewer.jsx` (Spark renderer). Generation is faked with a 6-second animation after AI analysis completes — World Labs API only accepts 4 images which is insufficient for vehicle reconstruction.
+- **Voice notes**: Captured during ImmersiveScan via Web Speech API, stored as `[{text, angle}]`. Passed through `ScanScene.onComplete` → `App.jsx` state → `AnnotateScene` Field Notes sidebar.

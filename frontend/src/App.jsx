@@ -11,6 +11,7 @@ export default function App() {
   const [coverageDecisions, setCoverageDecisions] = useState([]);
   const [coverageMap, setCoverageMap] = useState({});
   const [splatUrl, setSplatUrl] = useState(null);
+  const [voiceNotes, setVoiceNotes] = useState([]);
 
   return (
     <div style={{ width: '100vw', height: '100vh', overflow: 'hidden' }}>
@@ -19,16 +20,16 @@ export default function App() {
       )}
       {scene === 'scan' && claim && (
         <ScanScene claim={claim}
-          onComplete={(damage, coverage, covMap, splat) => {
+          onComplete={(damage, coverage, covMap, splat, notes) => {
             setDamageData(damage); setCoverageDecisions(coverage);
-            setCoverageMap(covMap); setSplatUrl(splat);
+            setCoverageMap(covMap); setSplatUrl(splat); setVoiceNotes(notes || []);
             setScene('annotate');
           }} />
       )}
       {scene === 'annotate' && (
         <AnnotateScene claim={claim} damageData={damageData}
           coverageDecisions={coverageDecisions} coverageMap={coverageMap}
-          splatUrl={splatUrl} onComplete={() => setScene('review')} />
+          splatUrl={splatUrl} voiceNotes={voiceNotes} onComplete={() => setScene('review')} />
       )}
       {scene === 'review' && (
         <ReviewScene claim={claim} damageData={damageData}
