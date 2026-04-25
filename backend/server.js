@@ -12,6 +12,7 @@ app.use('/splat',          require('./routes/serveSplat'));
 app.use('/analyze-damage', require('./routes/analyzeDamage'));
 app.use('/check-coverage', require('./routes/checkCoverage'));
 app.use('/ocr-document',   require('./routes/ocrDocument'));
+app.use('/save-frame',     require('./routes/saveFrame'));
 
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
 

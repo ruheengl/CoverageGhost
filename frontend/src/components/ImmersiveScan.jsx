@@ -1,10 +1,11 @@
 import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
+import { analyzeDamage, saveFrame } from '../lib/api';
 
 const BUCKETS = 18;
 const BUCKET_DEG = 360 / BUCKETS;
 const MIN_BUCKETS_COMPLETE = 12;
-const MIN_DIST_FROM_EDGE = 0.8;
+const MIN_DIST_FROM_EDGE = 0.3;
 
 export default function ImmersiveScan({ onCapture, onExit }) {
   const videoRef = useRef(null);
@@ -26,6 +27,8 @@ export default function ImmersiveScan({ onCapture, onExit }) {
     let lastPanelDraw = 0;
     let currentBucket = 0;
     let renderer, session, refSpace, hitTestSource, stream;
+    const scanId = Date.now();
+    let analysisInFlight = false;
 
     const mCanvas = document.createElement('canvas');
     mCanvas.width = 512; mCanvas.height = 512;
@@ -36,6 +39,11 @@ export default function ImmersiveScan({ onCapture, onExit }) {
     vCanvas.width = 512; vCanvas.height = 300;
     const vc = vCanvas.getContext('2d');
     let vTex, vPanel;
+
+    const dCanvas = document.createElement('canvas');
+    dCanvas.width = 512; dCanvas.height = 360;
+    const dc = dCanvas.getContext('2d');
+    let dTex, dPanel;
 
     function drawSetup(msg) {
       mc.clearRect(0, 0, 512, 512);
@@ -128,6 +136,33 @@ export default function ImmersiveScan({ onCapture, onExit }) {
       vTex.needsUpdate = true;
     }
 
+    function drawDamage(areas) {
+      dc.clearRect(0, 0, 512, 360);
+      dc.fillStyle = 'rgba(15,23,42,0.93)';
+      rrect(dc, 0, 0, 512, 360, 28); dc.fill();
+      dc.strokeStyle = '#34d399'; dc.lineWidth = 2;
+      rrect(dc, 0, 0, 512, 360, 28); dc.stroke();
+      dc.fillStyle = '#34d399'; dc.font = 'bold 20px Arial'; dc.textAlign = 'center';
+      dc.fillText('Live Analysis', 256, 36);
+      if (!areas || areas.length === 0) {
+        dc.fillStyle = 'rgba(255,255,255,0.4)'; dc.font = '17px Arial';
+        dc.fillText('No damage detected', 256, 100);
+      } else {
+        areas.slice(0, 5).forEach((area, i) => {
+          const y = 58 + i * 58;
+          const sev = (area.severity || '').toLowerCase();
+          const col = sev === 'severe' ? 'rgba(239,68,68,0.25)' : sev === 'moderate' ? 'rgba(251,191,36,0.2)' : 'rgba(52,211,153,0.15)';
+          dc.fillStyle = col;
+          rrect(dc, 16, y, 480, 50, 10); dc.fill();
+          dc.fillStyle = 'white'; dc.font = 'bold 16px Arial'; dc.textAlign = 'left';
+          dc.fillText(area.area_name || area.area || 'Unknown', 28, y + 18);
+          dc.fillStyle = 'rgba(255,255,255,0.6)'; dc.font = '14px Arial';
+          dc.fillText(`${area.severity || ''} · ${area.damage_type || ''}`.replace(/^ · | · $/, ''), 28, y + 36);
+        });
+      }
+      dTex.needsUpdate = true;
+    }
+
     async function captureFrame(video, bIdx, angleDeg) {
       try {
         const w = video.videoWidth || 640, h = video.videoHeight || 480;
@@ -137,11 +172,31 @@ export default function ImmersiveScan({ onCapture, onExit }) {
         c.drawImage(video, 0, 0);
         const imgData = c.getImageData(0, 0, w, h);
         const sharp = computeSharpness(imgData.data);
-        const blob = await new Promise(res => off.toBlob(res, 'image/jpeg', 0.88));
         if (!buckets[bIdx] || sharp > buckets[bIdx].sharpness) {
+          // Get base64 directly from canvas — avoids extra FileReader round-trip
+          const b64 = off.toDataURL('image/jpeg', 0.88).split(',')[1];
+          const blob = await new Promise(res => off.toBlob(res, 'image/jpeg', 0.88));
           buckets[bIdx] = { frameBlob: blob, sharpness: sharp, angle: angleDeg };
+          uploadAndAnalyze(b64, angleDeg, bIdx);
         }
       } catch (_) {}
+    }
+
+    function uploadAndAnalyze(b64, angleDeg, bIdx) {
+      // Upload to backend (fire-and-forget)
+      saveFrame({ frameBase64: b64, angle: angleDeg, bucketIndex: bIdx, scanId })
+        .catch(e => console.warn('[ImmersiveScan] save frame:', e.message));
+
+      // Run live damage analysis — skip if one is already in flight
+      if (analysisInFlight) return;
+      analysisInFlight = true;
+      analyzeDamage(b64)
+        .then(damage => {
+          drawDamage(damage?.damaged_areas);
+          if (dPanel) dPanel.visible = true;
+        })
+        .catch(e => console.warn('[ImmersiveScan] analyze:', e.message))
+        .finally(() => { analysisInFlight = false; });
     }
 
     function computeSharpness(d) {
@@ -182,6 +237,21 @@ export default function ImmersiveScan({ onCapture, onExit }) {
       return { x: lastViewerT.x + lastViewerFwd.x * dist, y: 0, z: lastViewerT.z + lastViewerFwd.z * dist };
     }
 
+    async function saveFrames(frames) {
+      for (let i = 0; i < frames.length; i++) {
+        const { frameBlob, angle } = frames[i];
+        const url = URL.createObjectURL(frameBlob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `scan-${String(i).padStart(2, '0')}-${Math.round(angle)}deg.jpg`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        await new Promise(res => setTimeout(res, 80));
+      }
+    }
+
     async function start() {
       try {
         stream = await navigator.mediaDevices.getUserMedia({
@@ -193,8 +263,9 @@ export default function ImmersiveScan({ onCapture, onExit }) {
 
       try {
         session = await navigator.xr.requestSession('immersive-ar', {
-          requiredFeatures: ['local-floor'],
-          optionalFeatures: ['hit-test', 'hand-tracking'],
+          // unbounded = no Guardian boundary restrictions when walking around vehicle
+          // local-floor = fallback if unbounded not supported
+          optionalFeatures: ['unbounded', 'local-floor', 'hit-test', 'hand-tracking'],
         });
         sessionRef.current = session;
       } catch (e) { console.error('[ImmersiveScan] XR:', e); onExit(); return; }
@@ -206,7 +277,16 @@ export default function ImmersiveScan({ onCapture, onExit }) {
       document.body.appendChild(renderer.domElement);
       renderer.domElement.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;z-index:9999;';
 
-      refSpace = await session.requestReferenceSpace('local-floor');
+      // unbounded has no Guardian boundary — designed for large-scale walking (e.g. circling a car).
+      // local-floor is the fallback; origin is fixed at session start so Guardian triggers don't
+      // shift the coordinate system, they only show a visual grid overlay.
+      try {
+        refSpace = await session.requestReferenceSpace('unbounded');
+      } catch (_) {
+        refSpace = await session.requestReferenceSpace('local-floor').catch(
+          () => session.requestReferenceSpace('local')
+        );
+      }
       const viewerSpace = await session.requestReferenceSpace('viewer');
       try { hitTestSource = await session.requestHitTestSource({ space: viewerSpace }); }
       catch (e) { console.warn('[ImmersiveScan] no hit-test, using fallback placement'); }
@@ -219,6 +299,15 @@ export default function ImmersiveScan({ onCapture, onExit }) {
       );
       scene.add(mPanel);
       drawSetup('Tap front bumper\non the ground');
+
+      // Debug markers — teal cube (front) and red cube (rear)
+      const cubeGeo = new THREE.BoxGeometry(0.15, 0.15, 0.15);
+      const frontMarker = new THREE.Mesh(cubeGeo, new THREE.MeshBasicMaterial({ color: 0x0d9488 }));
+      const rearMarker  = new THREE.Mesh(cubeGeo, new THREE.MeshBasicMaterial({ color: 0xef4444 }));
+      frontMarker.visible = false;
+      rearMarker.visible  = false;
+      scene.add(frontMarker);
+      scene.add(rearMarker);
 
       vTex = new THREE.CanvasTexture(vCanvas);
       vPanel = new THREE.Mesh(
@@ -289,6 +378,8 @@ export default function ImmersiveScan({ onCapture, onExit }) {
           const pt = lastHitPoint ?? fallbackFloorPoint(2);
           if (pt) {
             frontPoint = { x: pt.x, y: 0, z: pt.z };
+            frontMarker.position.set(pt.x, 0.075, pt.z);
+            frontMarker.visible = true;
             phase = 'setup-rear';
             lastHitPoint = null;
             drawSetup('Tap rear bumper\non the ground');
@@ -300,6 +391,8 @@ export default function ImmersiveScan({ onCapture, onExit }) {
           const pt = lastHitPoint ?? (frontPoint ? fallbackFloorPoint(4.5) : null);
           if (pt) {
             rearPoint = { x: pt.x, y: 0, z: pt.z };
+            rearMarker.position.set(pt.x, 0.075, pt.z);
+            rearMarker.visible = true;
             carLength = Math.max(
               Math.sqrt((rearPoint.x - frontPoint.x) ** 2 + (rearPoint.z - frontPoint.z) ** 2),
               1.5
@@ -328,7 +421,9 @@ export default function ImmersiveScan({ onCapture, onExit }) {
           const filled = buckets.filter(Boolean).length;
           if (filled >= MIN_BUCKETS_COMPLETE) {
             phase = 'complete';
-            onCapture(buckets.filter(Boolean), voiceNotes);
+            const frames = buckets.filter(Boolean);
+            saveFrames(frames);
+            onCapture(frames, voiceNotes);
             session.end().catch(() => {});
             return;
           }
