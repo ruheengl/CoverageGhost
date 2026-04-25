@@ -397,6 +397,53 @@ function DamageScanScreen({ claim, onComplete }) {
   );
 }
 
+export default function ScanScene({ claim, onComplete }) {
+  const [step, setStep] = useState('task');
+  const [driver, setDriver] = useState({});
+
+  return (
+    <div style={{ width: '100vw', height: '100vh', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <AppBackground />
+      <SideNav />
+      <div style={{ position: 'relative', zIndex: 10 }}>
+        {step === 'task' && (
+          <TaskCard
+            onStart={() => setStep('uiq')}
+            onDismiss={() => setStep('task')}
+          />
+        )}
+        {step === 'uiq' && (
+          <UIQTokenScreen onVerify={() => setStep('driver-choice')} />
+        )}
+        {step === 'driver-choice' && (
+          <DriverDetailsChoice
+            onManual={() => setStep('driver')}
+            onScan={() => setStep('license')}
+          />
+        )}
+        {step === 'license' && (
+          <ScanLicenseScreen
+            onCapture={() => setStep('driver')}
+            onManual={() => setStep('driver')}
+          />
+        )}
+        {step === 'driver' && (
+          <DriverDetailsResult
+            driver={driver}
+            onCapturePhoto={() => setStep('photo')}
+          />
+        )}
+        {step === 'photo' && (
+          <CapturePhotoScreen onCapture={() => setStep('scan')} />
+        )}
+        {step === 'scan' && (
+          <DamageScanScreen claim={claim} onComplete={onComplete} />
+        )}
+      </div>
+    </div>
+  );
+}
+
 function blobToBase64(blob) {
   return new Promise((res, rej) => {
     const r = new FileReader();

@@ -47,27 +47,34 @@ function extractTextResponse(data) {
 
 async function createChatCompletion({ messages, model = getDefaultModel(), temperature = 0 }) {
   const apiKey = getRequiredEnv('TAMUS_AI_CHAT_API_KEY');
-  const response = await fetch(`${getApiBaseUrl()}/api/chat/completions`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model,
-      stream: false,
-      temperature,
-      messages,
-    }),
-  });
-
-  const data = await response.json();
-
-  if (!response.ok) {
-    throw new Error(data?.error?.message || data?.message || `TAMUS AI request failed with status ${response.status}`);
+  let lastErr;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const response = await fetch(`${getApiBaseUrl()}/api/chat/completions`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ model, stream: false, temperature, messages }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data?.error?.message || data?.message || `TAMUS AI error ${response.status}`);
+      }
+      return data;
+    } catch (err) {
+      lastErr = err;
+      const code = err.cause?.code;
+      if ((code === 'ECONNRESET' || code === 'ECONNREFUSED') && attempt < 3) {
+        console.warn(`[tamusChat] ${code} on attempt ${attempt}, retrying in ${800 * attempt}ms...`);
+        await new Promise(res => setTimeout(res, 800 * attempt));
+      } else {
+        throw err;
+      }
+    }
   }
-
-  return data;
+  throw lastErr;
 }
 
 function parseJsonResponse(text) {
