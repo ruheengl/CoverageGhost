@@ -42,6 +42,15 @@ export async function pollJobStatus(jobId) {
   return res.json(); // { status, progress, splatUrl }
 }
 
+export async function saveFrame({ frameBase64, angle, bucketIndex, scanId }) {
+  const res = await fetch(`${BASE}/save-frame`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ frameBase64, angle, bucketIndex, scanId }),
+  });
+  if (!res.ok) throw new Error('saveFrame failed');
+  return res.json();
+}
+
 export function imageToBase64(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();

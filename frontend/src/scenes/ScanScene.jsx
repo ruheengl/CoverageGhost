@@ -10,12 +10,15 @@ import { enableXRLayer } from '../lib/enableXRLayer';
 import { analyzeDamage, checkCoverage, imageToBase64 } from '../lib/api';
 
 const inWebSpatial = /WebSpatial\//.test(navigator.userAgent);
-
 const CITATION_POSITIONS = [
   { x: '65%', y: '30%', z: 0.4 },
   { x: '20%', y: '55%', z: 0.35 },
   { x: '70%', y: '65%', z: 0.3 },
 ];
+const SPLAT_URL = '/assets/teex-car.spz';
+const GLB_URL = '/assets/teex-car.glb';
+const ANIM_MS = 6000;
+const SPIN = ['◐', '◓', '◑', '◒'];
 
 // ─── UI Sub-screens ───────────────────────────────────────────────────────────
 
@@ -219,6 +222,8 @@ function DamageScanScreen({ claim, onComplete }) {
   const [progress, setProgress] = useState(0);
   const [xrSupported, setXrSupported] = useState(false);
   const [immersiveActive, setImmersiveActive] = useState(false);
+  const [voiceNotes, setVoiceNotes] = useState([]);
+  const [spinIdx, setSpinIdx] = useState(0);
 
   const GLB_URL = '/assets/teex-car.glb';
 
@@ -228,14 +233,19 @@ function DamageScanScreen({ claim, onComplete }) {
     }
   }, []);
 
-  // Accepts a File object (from CameraCapture) or falls back gracefully
-  async function handleScan(file) {
+  useEffect(() => {
+    if (stage !== 'generating') return;
+    const t = setInterval(() => setSpinIdx(i => (i + 1) % 4), 220);
+    return () => clearInterval(t);
+  }, [stage]);
+
+  // Desktop / PICO photo path
+  async function handlePhotoScan(file) {
     if (!file) return;
     setStage('scanning');
     let p = 0;
     const timer = setInterval(() => {
-      p += 2;
-      setProgress(Math.min(p, 95));
+      p += 2; setProgress(Math.min(p, 95));
       if (p >= 95) clearInterval(timer);
     }, 160);
     try {
@@ -257,12 +267,76 @@ function DamageScanScreen({ claim, onComplete }) {
     }
   }
 
+  // ImmersiveScan completion — frames from angle-bucket capture + voice notes
+  async function handleImmersiveScan(frames, notes) {
+    setVoiceNotes(notes);
+    setImmersiveActive(false);
+    setStage('generating');
+    setProgress(0);
+
+    const startTime = Date.now();
+    const animTimer = setInterval(() => {
+      const elapsed = Date.now() - startTime;
+      setProgress(Math.min(Math.round((elapsed / ANIM_MS) * 100), 99));
+    }, 150);
+
+    try {
+      const firstFrame = frames[0];
+      let damage = { damaged_areas: [] };
+      if (firstFrame?.frameBlob) {
+        const b64 = await blobToBase64(firstFrame.frameBlob);
+        damage = await analyzeDamage(b64);
+      }
+      setDamageData(damage);
+
+      const coverageResult = await checkCoverage(damage);
+      const map = {};
+      coverageResult.coverage_decisions.forEach(d => { map[d.area_name] = d.coverage_status; });
+      setCoverageMap(map);
+      setCoverageDecisions(coverageResult.coverage_decisions);
+
+      const remaining = ANIM_MS - (Date.now() - startTime);
+      if (remaining > 0) await sleep(remaining);
+
+      clearInterval(animTimer);
+      setProgress(100);
+      setStage('coverage');
+    } catch (err) {
+      console.error('[ScanScene] immersive scan error:', err);
+      clearInterval(animTimer);
+      setStage('idle');
+    }
+  }
+
   return (
-    <div style={{ minHeight: '100vh', position: 'relative', fontFamily: 'var(--font)' }}>
+    <div style={{ minHeight: '100vh', position: 'relative', background: 'transparent', fontFamily: 'Arial' }}>
+
+      {stage === 'generating' && (
+        <div style={{
+          position: 'fixed', inset: 0, background: '#020617', zIndex: 100,
+          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+          color: 'white',
+        }}>
+          <div style={{ fontSize: 12, letterSpacing: 4, color: '#0d9488', marginBottom: 24, textTransform: 'uppercase', fontWeight: 600 }}>
+            World Labs Marble
+          </div>
+          <div style={{ fontSize: 40, marginBottom: 20, color: '#0d9488' }}>{SPIN[spinIdx]}</div>
+          <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 28 }}>Generating 3D Reconstruction</div>
+          <div style={{ width: 340, height: 6, background: 'rgba(255,255,255,0.08)', borderRadius: 6, overflow: 'hidden', marginBottom: 12 }}>
+            <div style={{
+              width: `${progress}%`, height: '100%',
+              background: 'linear-gradient(90deg, #0d9488, #34d399)',
+              transition: 'width 0.15s linear', borderRadius: 6,
+            }} />
+          </div>
+          <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.38)' }}>{progress}% complete</div>
+        </div>
+      )}
+
       <ClaimHUD
         claimId={claim.claimId}
         adjuster={claim.adjuster}
-        stage={stage === 'coverage' ? 'Coverage Active' : 'Scanning'}
+        stage={stage === 'coverage' ? 'Coverage Active' : stage === 'generating' ? 'Processing' : 'Scanning'}
         progress={stage === 'scanning' ? progress : undefined}
       />
       <div style={{ position: 'fixed', inset: 0, zIndex: 0 }}>
@@ -272,7 +346,10 @@ function DamageScanScreen({ claim, onComplete }) {
         <PolicyCitation key={i} decision={d} position={CITATION_POSITIONS[i]} />
       ))}
       {stage === 'idle' && immersiveActive && (
-        <ImmersiveScan onCapture={handleScan} onExit={() => setImmersiveActive(false)} />
+        <ImmersiveScan
+          onCapture={handleImmersiveScan}
+          onExit={() => setImmersiveActive(false)}
+        />
       )}
       {stage === 'idle' && !immersiveActive && (
         <div style={{
@@ -283,7 +360,10 @@ function DamageScanScreen({ claim, onComplete }) {
           {xrSupported && !inWebSpatial && (
             <button
               onClick={() => setImmersiveActive(true)}
-              style={{ padding: '14px 32px', background: '#0d9488', border: 'none', borderRadius: 40, color: 'white', fontSize: 16, fontWeight: 700, cursor: 'pointer' }}
+              style={{
+                padding: '14px 32px', background: '#0d9488', border: 'none',
+                borderRadius: 40, color: 'white', fontSize: 16, fontWeight: 700, cursor: 'pointer',
+              }}
             >
               Enter Immersive Scan
             </button>
@@ -293,15 +373,21 @@ function DamageScanScreen({ claim, onComplete }) {
             subtitle={xrSupported ? 'Or capture a still photo instead.' : 'Capture the damaged vehicle.'}
             captureLabel="Capture Damage"
             busyLabel="Analyzing..."
-            onCapture={handleScan}
+            onCapture={handlePhotoScan}
           />
         </div>
       )}
       {stage === 'coverage' && (
-        <div style={{ position: 'fixed', bottom: 40, left: '50%', transform: 'translateX(-50%)', ...enableXRLayer({ zOffset: 0.5 }) }}>
+        <div style={{
+          position: 'fixed', bottom: 40, left: '50%', transform: 'translateX(-50%)',
+          ...enableXRLayer({ zOffset: 0.5 }),
+        }}>
           <button
-            onClick={() => onComplete(damageData, coverageDecisions)}
-            style={{ padding: '14px 32px', background: '#0d9488', border: 'none', borderRadius: 40, color: 'white', fontSize: 16, fontWeight: 700, cursor: 'pointer' }}
+            onClick={() => onComplete(damageData, coverageDecisions, coverageMap, SPLAT_URL, voiceNotes)}
+            style={{
+              padding: '14px 32px', background: '#0d9488', border: 'none',
+              borderRadius: 40, color: 'white', fontSize: 16, fontWeight: 700, cursor: 'pointer',
+            }}
           >
             Continue to Annotation
           </button>
@@ -311,94 +397,13 @@ function DamageScanScreen({ claim, onComplete }) {
   );
 }
 
-// ─── Step Navigator ───────────────────────────────────────────────────────────
-
-function StepNav({ current, total, onBack, onNext }) {
-  return (
-    <div style={{
-      position: 'fixed', bottom: 32, left: '50%', transform: 'translateX(-50%)',
-      display: 'flex', alignItems: 'center', gap: 16,
-      background: 'rgba(52,52,52,0.88)', backdropFilter: 'blur(16px)',
-      WebkitBackdropFilter: 'blur(16px)', borderRadius: 50,
-      border: '1px solid rgba(255,255,255,0.10)',
-      padding: '10px 20px', boxShadow: '0 4px 24px rgba(0,0,0,0.35)', zIndex: 200,
-    }}>
-      <button onClick={onBack} style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(255,255,255,0.10)', color: 'white', fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>‹</button>
-      <span style={{ color: 'white', fontSize: 15, fontWeight: 500 }}>Step {current} of {total}</span>
-      <button onClick={onNext} style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(255,255,255,0.10)', color: 'white', fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>›</button>
-    </div>
-  );
+function blobToBase64(blob) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(r.result.split(',')[1]);
+    r.onerror = rej;
+    r.readAsDataURL(blob);
+  });
 }
 
-// ─── Main ScanScene ───────────────────────────────────────────────────────────
-
-const STEPS = ['tasks', 'uiq', 'driver-choice', 'scan-license', 'driver-result', 'capture-photo', 'damage-scan'];
-
-export default function ScanScene({ claim, onComplete }) {
-  const [navActive, setNavActive] = useState('tasks');
-  const [step, setStep] = useState(0);
-  const [driverData] = useState({});
-  const [navExpanded, setNavExpanded] = useState(true);
-
-  const currentStep = STEPS[step];
-  const showStepNav = step >= 1 && step <= 5;
-  const stepNavCurrent = step <= 2 ? 1 : 2;
-
-  function next() { setStep(s => Math.min(s + 1, STEPS.length - 1)); }
-  function back() { setStep(s => Math.max(s - 1, 0)); }
-
-  if (currentStep === 'damage-scan') {
-    return (
-      <div style={{ width: '100vw', height: '100vh', position: 'relative' }}>
-        <AppBackground />
-        <SideNav active="tasks" onNavigate={setNavActive} expanded={false} />
-        <DamageScanScreen claim={claim} onComplete={onComplete} />
-      </div>
-    );
-  }
-
-  return (
-    <div style={{ width: '100vw', height: '100vh', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <AppBackground />
-      <SideNav
-        active={navActive}
-        onNavigate={id => { setNavActive(id); if (id === 'new') setStep(0); }}
-        expanded={navExpanded}
-      />
-
-      <div style={{ position: 'relative', zIndex: 10, marginLeft: navExpanded ? 240 : 82, transition: 'margin-left 0.2s' }}>
-        {currentStep === 'tasks' && (
-          <TaskCard
-            onStart={() => { setNavActive('tasks'); setStep(1); setNavExpanded(false); }}
-            onDismiss={() => {}}
-          />
-        )}
-        {currentStep === 'uiq' && <UIQTokenScreen onVerify={() => next()} />}
-        {currentStep === 'driver-choice' && <DriverDetailsChoice onManual={() => next()} onScan={() => next()} />}
-        {currentStep === 'scan-license' && <ScanLicenseScreen onCapture={() => next()} onManual={() => next()} />}
-        {currentStep === 'driver-result' && <DriverDetailsResult driver={driverData} onCapturePhoto={() => next()} />}
-        {currentStep === 'capture-photo' && <CapturePhotoScreen onCapture={() => next()} />}
-      </div>
-
-      {currentStep === 'tasks' && (
-        <div style={{
-          position: 'fixed', bottom: 32, left: '50%', transform: 'translateX(-50%)',
-          display: 'flex', gap: 4, background: 'rgba(52,52,52,0.88)',
-          backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)',
-          borderRadius: 50, border: '1px solid rgba(255,255,255,0.10)',
-          padding: 6, zIndex: 200,
-        }}>
-          {['New', 'In Progress', 'Completed'].map((tab, i) => (
-            <button key={tab} style={{
-              padding: '8px 22px', borderRadius: 40, fontSize: 14, fontWeight: i === 0 ? 600 : 400,
-              background: i === 0 ? 'rgba(80,80,80,0.9)' : 'transparent',
-              color: 'white', fontFamily: 'var(--font)',
-            }}>{tab}</button>
-          ))}
-        </div>
-      )}
-
-      {showStepNav && <StepNav current={stepNavCurrent} total={3} onBack={back} onNext={next} />}
-    </div>
-  );
-}
+function sleep(ms) { return new Promise(res => setTimeout(res, ms)); }
