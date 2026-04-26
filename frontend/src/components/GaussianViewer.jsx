@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { SparkRenderer } from '@sparkjsdev/spark';
+import { SparkRenderer, SplatMesh } from '@sparkjsdev/spark';
 import * as THREE from 'three';
 
 export default function GaussianViewer({ splatUrl }) {
@@ -22,8 +22,28 @@ export default function GaussianViewer({ splatUrl }) {
 
     // SparkRenderer is a THREE.Mesh — add to scene and it renders via Three.js normally.
     // paged: true enables streaming LoD for large .spz files.
-    const spark = new SparkRenderer({ renderer, url: splatUrl, paged: true });
-    scene.add(spark);
+    // const spark = new SparkRenderer({ renderer, url: splatUrl, paged: true });
+    // scene.add(spark);
+
+    // const butterfly = new SplatMesh({ url: splatUrl });
+    // butterfly.quaternion.set(1, 0, 0, 0);
+    // butterfly.position.set(0, 0, -3);
+    // scene.add(butterfly);
+
+    // SparkRenderer — loads the .spz file with streaming LoD
+    let spark;
+    try {
+      spark = new SparkRenderer({ renderer, url: splatUrl, paged: true });
+      scene.add(spark);
+
+      const butterfly = new SplatMesh({ url: splatUrl });
+      butterfly.quaternion.set(1, 0, 0, 0);
+      butterfly.position.set(0, 0, -3);
+      scene.add(butterfly);
+      console.log('[GaussianViewer] SparkRenderer created for:', splatUrl);
+    } catch (e) {
+      console.error('[GaussianViewer] SparkRenderer failed:', e);
+    }
 
     let animId;
     const animate = () => {

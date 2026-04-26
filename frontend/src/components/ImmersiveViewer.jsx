@@ -64,7 +64,6 @@ export default function ImmersiveViewer({ splatUrl, damageData, onComplete, onEx
         spark = new SparkRenderer({ renderer, url: splatUrl, paged: true });
         scene.add(spark);
 
-        console.log("Url:",splatUrl);
         const butterfly = new SplatMesh({ url: splatUrl });
         butterfly.quaternion.set(1, 0, 0, 0);
         butterfly.position.set(0, 0, -3);
