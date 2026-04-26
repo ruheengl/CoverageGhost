@@ -26,8 +26,10 @@ export default function ImmersiveViewer({ splatUrl, damageData, onComplete, onEx
     let renderer, session, refSpace;
     let splatPlaced = false;
     let spark = null;
+    let butterfly = null;
     let leftHand = null, rightHand = null;
     const prevPinch = { left: null, right: null };
+    let bothPinchStart = null;
 
     const pCanvas = document.createElement('canvas');
     pCanvas.width = 512; pCanvas.height = 200;
@@ -46,8 +48,8 @@ export default function ImmersiveViewer({ splatUrl, damageData, onComplete, onEx
       pc.fillText(line1, 256, 84);
       if (line2) { pc.fillStyle = 'rgba(255,255,255,0.55)'; pc.font = '15px Arial'; pc.fillText(line2, 256, 114); }
       pc.fillStyle = 'rgba(255,255,255,0.35)'; pc.font = '15px Arial';
-      pc.fillText('Pinch & drag to rotate  |  Both hands to scale', 256, 155);
-      pc.fillText('Pull trigger to continue', 256, 178);
+      pc.fillText('Pinch & drag → rotate  |  Both hands → scale', 256, 155);
+      pc.fillText('Hold both pinches 1.5s to exit', 256, 178);
       pTex.needsUpdate = true;
     }
 
@@ -80,8 +82,8 @@ export default function ImmersiveViewer({ splatUrl, damageData, onComplete, onEx
         spark = new SparkRenderer({ renderer, paged: true });
         scene.add(spark);
 
-        const butterfly = new SplatMesh({ url: splatUrl });
-        butterfly.quaternion.set(1, 0, 0, 0);
+        butterfly = new SplatMesh({ url: splatUrl });
+        butterfly.quaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI);
         butterfly.position.set(0, 0, -3);
         scene.add(butterfly);
         console.log('[ImmersiveViewer] SparkRenderer created for:', splatUrl);
@@ -112,9 +114,9 @@ export default function ImmersiveViewer({ splatUrl, damageData, onComplete, onEx
         const quat = new THREE.Quaternion(q.x, q.y, q.z, q.w);
         const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(quat);
 
-        if (!splatPlaced && spark) {
+        if (!splatPlaced && butterfly) {
           splatPlaced = true;
-          spark.position.set(tx + fwd.x * 2, 0, tz + fwd.z * 2);
+          butterfly.position.set(tx + fwd.x * 2, 0, tz + fwd.z * 2);
           drawPanel('Viewing reconstruction', areaCount > 0 ? `${areaCount} damage area${areaCount !== 1 ? 's' : ''}` : '');
         }
 
@@ -125,23 +127,33 @@ export default function ImmersiveViewer({ splatUrl, damageData, onComplete, onEx
         }
 
         // Hand gesture interaction (only after splat placed)
-        if (splatPlaced && spark) {
+        if (splatPlaced && butterfly) {
           const left  = getPinch(leftHand,  frame, refSpace);
           const right = getPinch(rightHand, frame, refSpace);
 
-          if (left?.pinching && right?.pinching && prevPinch.left && prevPinch.right) {
-            // Two-hand pinch → scale
-            const prev = midDist(prevPinch.left, prevPinch.right);
-            const curr = midDist(left, right);
-            if (prev > 0.001) {
-              const ratio = curr / prev;
-              const s = Math.max(0.2, Math.min(5, spark.scale.x * ratio));
-              spark.scale.set(s, -s, s);
+          if (left?.pinching && right?.pinching) {
+            // Both hands pinching → scale or hold-to-exit
+            if (prevPinch.left && prevPinch.right) {
+              const prev = midDist(prevPinch.left, prevPinch.right);
+              const curr = midDist(left, right);
+              if (prev > 0.001) {
+                const ratio = curr / prev;
+                const s = Math.max(0.2, Math.min(5, butterfly.scale.x * ratio));
+                butterfly.scale.setScalar(s);
+              }
             }
-          } else if (left?.pinching && prevPinch.left) {
-            // Single left-hand pinch → rotate Y
-            const dx = left.mid.x - prevPinch.left.mid.x;
-            spark.rotation.y += dx * 8;
+            // Hold both pinches 1.5s → exit
+            if (!bothPinchStart) bothPinchStart = time;
+            else if (time - bothPinchStart > 5000) {
+              session.end().catch(() => {});
+            }
+          } else {
+            bothPinchStart = null;
+            if (left?.pinching && prevPinch.left) {
+              // Single left-hand pinch drag → rotate Y
+              const dx = left.mid.x - prevPinch.left.mid.x;
+              butterfly.rotation.y += dx * 8;
+            }
           }
 
           prevPinch.left  = left?.pinching  ? left  : null;
@@ -155,13 +167,10 @@ export default function ImmersiveViewer({ splatUrl, damageData, onComplete, onEx
         renderer.render(scene, camera);
       });
 
-      session.addEventListener('selectend', () => {
-        session.end().catch(() => {});
-      });
-
       session.addEventListener('end', () => {
         renderer.setAnimationLoop(null);
         spark?.dispose?.();
+        butterfly?.dispose?.();
         renderer.dispose();
         renderer.domElement.remove();
         onExit();

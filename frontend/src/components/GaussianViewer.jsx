@@ -34,7 +34,7 @@ export default function GaussianViewer({ splatUrl }) {
       scene.add(spark);
 
       const butterfly = new SplatMesh({ url: splatUrl });
-      butterfly.quaternion.set(1, 0, 0, 0);
+      butterfly.quaternion.setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI);
       butterfly.position.set(0, 0, -3);
       scene.add(butterfly);
       console.log('[GaussianViewer] SparkRenderer created for:', splatUrl);
