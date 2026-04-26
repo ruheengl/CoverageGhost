@@ -350,6 +350,17 @@ function DamageScanScreen({ claim, onComplete }) {
           display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12,
           ...enableXRLayer({ zOffset: 0.5 }),
         }}>
+          {/* DEBUG SKIP — remove before demo */}
+          <button
+            onClick={() => onComplete(null, [], {}, SPLAT_URL, [])}
+            style={{
+              padding: '8px 20px', background: 'rgba(255,100,0,0.7)', border: '1px dashed orange',
+              borderRadius: 20, color: 'white', fontSize: 13, cursor: 'pointer',
+            }}
+          >
+            ⚡ Skip to 3D Viewer
+          </button>
+          {/* END DEBUG SKIP */}
           {xrSupported && !inWebSpatial && (
             <button
               onClick={() => setImmersiveActive(true)}
