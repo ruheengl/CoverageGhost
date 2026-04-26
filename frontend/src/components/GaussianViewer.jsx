@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { SparkRenderer, SplatMesh } from '@sparkjsdev/spark';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import * as THREE from 'three';
 
 export default function GaussianViewer({ splatUrl }) {
@@ -20,20 +21,16 @@ export default function GaussianViewer({ splatUrl }) {
     renderer.setClearColor(0x000000, 0);
     mountRef.current.appendChild(renderer.domElement);
 
-    // SparkRenderer is a THREE.Mesh — add to scene and it renders via Three.js normally.
-    // paged: true enables streaming LoD for large .spz files.
-    // const spark = new SparkRenderer({ renderer, url: splatUrl, paged: true });
-    // scene.add(spark);
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.08;
+    controls.minDistance = 1;
+    controls.maxDistance = 20;
 
-    // const butterfly = new SplatMesh({ url: splatUrl });
-    // butterfly.quaternion.set(1, 0, 0, 0);
-    // butterfly.position.set(0, 0, -3);
-    // scene.add(butterfly);
-
-    // SparkRenderer — loads the .spz file with streaming LoD
     let spark;
     try {
-      spark = new SparkRenderer({ renderer, url: splatUrl, paged: true });
+      spark = new SparkRenderer({ renderer, paged: true });
+      spark.scale.set(1, -1, 1);
       scene.add(spark);
 
       const butterfly = new SplatMesh({ url: splatUrl });
@@ -48,13 +45,15 @@ export default function GaussianViewer({ splatUrl }) {
     let animId;
     const animate = () => {
       animId = requestAnimationFrame(animate);
+      controls.update();
       renderer.render(scene, camera);
     };
     animate();
 
     return () => {
       cancelAnimationFrame(animId);
-      spark.dispose?.();
+      controls.dispose();
+      spark?.dispose?.();
       renderer.dispose();
       mountRef.current?.removeChild(renderer.domElement);
     };

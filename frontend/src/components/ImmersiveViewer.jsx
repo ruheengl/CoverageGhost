@@ -2,14 +2,32 @@ import { useEffect, useRef } from 'react';
 import { SparkRenderer, SplatMesh } from '@sparkjsdev/spark';
 import * as THREE from 'three';
 
+function getPinch(hand, frame, refSpace) {
+  if (!hand) return null;
+  const i = hand.get('index-finger-tip');
+  const t = hand.get('thumb-tip');
+  if (!i || !t) return null;
+  const ip = frame.getJointPose(i, refSpace);
+  const tp = frame.getJointPose(t, refSpace);
+  if (!ip || !tp) return null;
+  const p = ip.transform.position, q = tp.transform.position;
+  const dist = Math.hypot(p.x - q.x, p.y - q.y, p.z - q.z);
+  return { pinching: dist < 0.03, mid: { x: (p.x + q.x) / 2, y: (p.y + q.y) / 2, z: (p.z + q.z) / 2 } };
+}
+
+function midDist(a, b) {
+  return Math.hypot(a.mid.x - b.mid.x, a.mid.y - b.mid.y, a.mid.z - b.mid.z);
+}
+
 export default function ImmersiveViewer({ splatUrl, damageData, onComplete, onExit }) {
   const sessionRef = useRef(null);
 
   useEffect(() => {
     let renderer, session, refSpace;
     let splatPlaced = false;
-
-    console.log('[ImmersiveViewer] splatUrl:', splatUrl);
+    let spark = null;
+    let leftHand = null, rightHand = null;
+    const prevPinch = { left: null, right: null };
 
     const pCanvas = document.createElement('canvas');
     pCanvas.width = 512; pCanvas.height = 200;
@@ -28,7 +46,8 @@ export default function ImmersiveViewer({ splatUrl, damageData, onComplete, onEx
       pc.fillText(line1, 256, 84);
       if (line2) { pc.fillStyle = 'rgba(255,255,255,0.55)'; pc.font = '15px Arial'; pc.fillText(line2, 256, 114); }
       pc.fillStyle = 'rgba(255,255,255,0.35)'; pc.font = '15px Arial';
-      pc.fillText('Pull trigger to continue', 256, 170);
+      pc.fillText('Pinch & drag to rotate  |  Both hands to scale', 256, 155);
+      pc.fillText('Pull trigger to continue', 256, 178);
       pTex.needsUpdate = true;
     }
 
@@ -45,7 +64,6 @@ export default function ImmersiveViewer({ splatUrl, damageData, onComplete, onEx
         return;
       }
 
-      // antialias: false — MSAA framebuffers are incompatible with WebXR framebuffer on Meta Quest
       renderer = new THREE.WebGLRenderer({ antialias: false, alpha: true, powerPreference: 'high-performance' });
       renderer.setPixelRatio(window.devicePixelRatio);
       renderer.xr.enabled = true;
@@ -58,10 +76,8 @@ export default function ImmersiveViewer({ splatUrl, damageData, onComplete, onEx
 
       const scene = new THREE.Scene();
 
-      // SparkRenderer — loads the .spz file with streaming LoD
-      let spark;
       try {
-        spark = new SparkRenderer({ renderer, url: splatUrl, paged: true });
+        spark = new SparkRenderer({ renderer, paged: true });
         scene.add(spark);
 
         const butterfly = new SplatMesh({ url: splatUrl });
@@ -73,20 +89,18 @@ export default function ImmersiveViewer({ splatUrl, damageData, onComplete, onEx
         console.error('[ImmersiveViewer] SparkRenderer failed:', e);
       }
 
-      // Head-locked info panel
       pTex = new THREE.CanvasTexture(pCanvas);
       const panel = new THREE.Mesh(
-        new THREE.PlaneGeometry(0.5, 0.195),
+        new THREE.PlaneGeometry(0.6, 0.23),
         new THREE.MeshBasicMaterial({ map: pTex, transparent: true, depthWrite: false })
       );
       scene.add(panel);
+
       const areaCount = damageData?.affected_areas?.length ?? damageData?.damaged_areas?.length ?? 0;
       drawPanel('Loading splat...', areaCount > 0 ? `${areaCount} damage area${areaCount !== 1 ? 's' : ''} detected` : '');
 
       const camera = new THREE.PerspectiveCamera(70, 1, 0.01, 100);
 
-      // Use renderer.setAnimationLoop — the Three.js XR-aware loop that keeps all
-      // WebGL operations inside a valid XR frame, preventing "invalidated object" errors.
       renderer.setAnimationLoop((time, frame) => {
         if (!frame) return;
 
@@ -98,12 +112,40 @@ export default function ImmersiveViewer({ splatUrl, damageData, onComplete, onEx
         const quat = new THREE.Quaternion(q.x, q.y, q.z, q.w);
         const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(quat);
 
-        // Place splat once — 2m in front at floor level
         if (!splatPlaced && spark) {
           splatPlaced = true;
           spark.position.set(tx + fwd.x * 2, 0, tz + fwd.z * 2);
-          console.log('[ImmersiveViewer] splat placed at', spark.position);
           drawPanel('Viewing reconstruction', areaCount > 0 ? `${areaCount} damage area${areaCount !== 1 ? 's' : ''}` : '');
+        }
+
+        // Resolve hand references from input sources
+        for (const src of frame.session.inputSources) {
+          if (src.hand && src.handedness === 'left')  leftHand  = src.hand;
+          if (src.hand && src.handedness === 'right') rightHand = src.hand;
+        }
+
+        // Hand gesture interaction (only after splat placed)
+        if (splatPlaced && spark) {
+          const left  = getPinch(leftHand,  frame, refSpace);
+          const right = getPinch(rightHand, frame, refSpace);
+
+          if (left?.pinching && right?.pinching && prevPinch.left && prevPinch.right) {
+            // Two-hand pinch → scale
+            const prev = midDist(prevPinch.left, prevPinch.right);
+            const curr = midDist(left, right);
+            if (prev > 0.001) {
+              const ratio = curr / prev;
+              const s = Math.max(0.2, Math.min(5, spark.scale.x * ratio));
+              spark.scale.set(s, -s, s);
+            }
+          } else if (left?.pinching && prevPinch.left) {
+            // Single left-hand pinch → rotate Y
+            const dx = left.mid.x - prevPinch.left.mid.x;
+            spark.rotation.y += dx * 8;
+          }
+
+          prevPinch.left  = left?.pinching  ? left  : null;
+          prevPinch.right = right?.pinching ? right : null;
         }
 
         // Head-lock panel
