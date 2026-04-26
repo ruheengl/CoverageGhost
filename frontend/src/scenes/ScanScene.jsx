@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import AppBackground from '../components/AppBackground';
 import SideNav from '../components/SideNav';
-import CoverageOverlay from '../components/CoverageOverlay';
 import PolicyCitation from '../components/PolicyCitation';
 import ClaimHUD from '../components/ClaimHUD';
 import CameraCapture from '../components/CameraCapture';
@@ -15,8 +14,8 @@ const CITATION_POSITIONS = [
   { x: '20%', y: '55%', z: 0.35 },
   { x: '70%', y: '65%', z: 0.3 },
 ];
-const SPLAT_URL = '/assets/teex-car.spz';
-const GLB_URL = '/assets/teex-car.glb';
+// const SPLAT_URL = '/assets/hornelizard.spz';
+const SPLAT_URL = "https://sparkjs.dev/assets/splats/butterfly.spz";
 const ANIM_MS = 6000;
 const SPIN = ['◐', '◓', '◑', '◒'];
 
@@ -225,8 +224,6 @@ function DamageScanScreen({ claim, onComplete }) {
   const [voiceNotes, setVoiceNotes] = useState([]);
   const [spinIdx, setSpinIdx] = useState(0);
 
-  const GLB_URL = '/assets/teex-car.glb';
-
   useEffect(() => {
     if (!inWebSpatial) {
       navigator.xr?.isSessionSupported('immersive-ar').then(setXrSupported).catch(() => {});
@@ -339,9 +336,6 @@ function DamageScanScreen({ claim, onComplete }) {
         stage={stage === 'coverage' ? 'Coverage Active' : stage === 'generating' ? 'Processing' : 'Scanning'}
         progress={stage === 'scanning' ? progress : undefined}
       />
-      <div style={{ position: 'fixed', inset: 0, zIndex: 0 }}>
-        <CoverageOverlay glbUrl={GLB_URL} coverageMap={coverageMap} />
-      </div>
       {stage === 'coverage' && coverageDecisions.slice(0, 3).map((d, i) => (
         <PolicyCitation key={i} decision={d} position={CITATION_POSITIONS[i]} />
       ))}

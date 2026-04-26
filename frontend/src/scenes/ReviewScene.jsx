@@ -1,12 +1,6 @@
-import GaussianViewer from '../components/GaussianViewer';
-
-export default function ReviewScene({ claim, damageData, coverageDecisions = [], splatUrl }) {
+export default function ReviewScene({ claim, damageData, coverageDecisions = [] }) {
   return (
     <div style={{ minHeight: '100vh', background: '#020617', color: 'white', position: 'relative' }}>
-      <div style={{ position: 'absolute', inset: 0 }}>
-        <GaussianViewer splatUrl={splatUrl} />
-      </div>
-
       <div style={{ position: 'relative', zIndex: 1, padding: 24 }}>
         <div style={{ maxWidth: 520, padding: 24, borderRadius: 18, background: 'rgba(15,23,42,0.85)' }}>
           <div style={{ fontSize: 26, fontWeight: 700, marginBottom: 8 }}>Claim Summary</div>

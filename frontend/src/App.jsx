@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import LoginScene from './scenes/LoginScene';
 import ScanScene from './scenes/ScanScene';
+import ImmersiveViewer from './components/ImmersiveViewer';
 import AnnotateScene from './scenes/AnnotateScene';
 import ReviewScene from './scenes/ReviewScene';
 import './index.css';
@@ -24,8 +25,16 @@ export default function App() {
           onComplete={(damage, coverage, covMap, splat, notes) => {
             setDamageData(damage); setCoverageDecisions(coverage);
             setCoverageMap(covMap); setSplatUrl(splat); setVoiceNotes(notes || []);
-            setScene('annotate');
+            setScene('splat-view');
           }} />
+      )}
+      {scene === 'splat-view' && (
+        <ImmersiveViewer
+          splatUrl={splatUrl}
+          damageData={damageData}
+          onComplete={() => setScene('annotate')}
+          onExit={() => setScene('annotate')}
+        />
       )}
       {scene === 'annotate' && (
         <AnnotateScene claim={claim} damageData={damageData}

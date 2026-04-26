@@ -4,7 +4,9 @@ import { scanFrame } from '../lib/api';
 
 const BUCKETS = 18;
 const BUCKET_DEG = 360 / BUCKETS;
-const MIN_BUCKETS_COMPLETE = 12;
+// DEBUG: set to 0 so scan can be completed at any time regardless of coverage.
+// Change back to 12 (two-thirds of 18 buckets) for production.
+const MIN_BUCKETS_COMPLETE = 0;
 
 // 4-wheel setup phases in order
 const WHEEL_PHASES = ['setup-fl', 'setup-fr', 'setup-rr', 'setup-rl'];
@@ -220,12 +222,11 @@ export default function ImmersiveScan({ onCapture, onExit }) {
         off.width = w; off.height = h;
         const c = off.getContext('2d');
         c.drawImage(video, 0, 0);
-        const imgData = c.getImageData(0, 0, w, h);
-        const sharp = computeSharpness(imgData.data);
-        if (!buckets[bIdx] || sharp > buckets[bIdx].sharpness) {
+        // Only capture once per bucket — first frame wins
+        if (!buckets[bIdx]) {
           const b64 = off.toDataURL('image/jpeg', 0.88).split(',')[1];
           const blob = await new Promise(res => off.toBlob(res, 'image/jpeg', 0.88));
-          buckets[bIdx] = { frameBlob: blob, sharpness: sharp, angle: angleDeg };
+          buckets[bIdx] = { frameBlob: blob, sharpness: 0, angle: angleDeg };
           uploadAndAnalyze(b64, angleDeg, bIdx);
         }
       } catch (_) {}
