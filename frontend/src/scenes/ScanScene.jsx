@@ -14,8 +14,7 @@ const CITATION_POSITIONS = [
   { x: '20%', y: '55%', z: 0.35 },
   { x: '70%', y: '65%', z: 0.3 },
 ];
-// const SPLAT_URL = '/assets/hornelizard.spz';
-const SPLAT_URL = "https://sparkjs.dev/assets/splats/butterfly.spz";
+const SPLAT_URL = '/api/splat';
 const ANIM_MS = 6000;
 const SPIN = ['◐', '◓', '◑', '◒'];
 

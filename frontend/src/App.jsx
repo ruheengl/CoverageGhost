@@ -4,6 +4,7 @@ import ScanScene from './scenes/ScanScene';
 import ImmersiveViewer from './components/ImmersiveViewer';
 import AnnotateScene from './scenes/AnnotateScene';
 import ReviewScene from './scenes/ReviewScene';
+import CameraBackground from './components/CameraBackground';
 import './index.css';
 
 export default function App() {
@@ -17,6 +18,7 @@ export default function App() {
 
   return (
     <div style={{ width: '100vw', height: '100vh', overflow: 'hidden' }}>
+      <CameraBackground active={scene !== 'splat-view'} />
       {scene === 'login' && (
         <LoginScene onLogin={(data) => { setClaim(data); setScene('scan'); }} />
       )}

@@ -1,11 +1,19 @@
 const express = require('express');
+const path = require('path');
+const fs = require('fs');
 
 const router = express.Router();
+const SPLAT_PATH = path.join(__dirname, '..', 'assets', 'car_burnout_converted.spz');
 
-router.get('/', async (req, res) => {
-  res.status(404).json({
-    error: 'No splat asset is available in this local setup yet.'
-  });
+router.get('/', (req, res) => {
+
+  console.log("Path:",SPLAT_PATH);
+  if (!fs.existsSync(SPLAT_PATH)) {
+    return res.status(404).json({ error: 'Splat asset not found.' });
+  }
+  res.setHeader('Content-Type', 'application/octet-stream');
+  res.setHeader('Content-Disposition', 'inline; filename="car_burnout_converted.spz"');
+  fs.createReadStream(SPLAT_PATH).pipe(res);
 });
 
 module.exports = router;
