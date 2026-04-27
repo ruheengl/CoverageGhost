@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "WebFetch(domain:docs.worldlabs.ai)"
+      "WebFetch(domain:docs.worldlabs.ai)",
+      "WebFetch(domain:webspatial.dev)"
     ]
   }
 }
