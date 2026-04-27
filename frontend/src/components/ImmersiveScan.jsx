@@ -32,6 +32,12 @@ export default function ImmersiveScan({ onCapture, onExit }) {
     let currentBucket = 0;
     let renderer, session, scene, refSpace, hitTestSource, stream;
     let ringMeshes = [];
+    let stickyNotes = []; // { mesh, noteEntry } — tracked for play-button raycasts
+    let activeAudio = null;       // currently playing Audio element
+    let activeAudioMesh = null;   // mesh whose button is in play state
+    let gripHeld = false;         // grip button currently held (note placement arm)
+    let grippedStickyIdx = -1;    // index of sticky note being moved (-1 = none)
+    let gripPreviewPos = null;    // placement position computed while grip held
     const scanId = Date.now();
     let analysisInFlight = false;
     let lastControllerPoses = []; // cached each XR frame from targetRaySpace
@@ -282,13 +288,14 @@ export default function ImmersiveScan({ onCapture, onExit }) {
     function makeStickyNote(pos) {
       const c = document.createElement('canvas');
       c.width = 512; c.height = 320;
-      const ctx = c.getContext('2d');
       const tex = new THREE.CanvasTexture(c);
       const mesh = new THREE.Mesh(
         new THREE.PlaneGeometry(0.32, 0.2),
         new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, side: THREE.DoubleSide })
       );
       mesh.position.set(pos.x, pos.y + 0.12, pos.z);
+      // Face the viewer immediately at creation time
+      if (lastViewerT) mesh.lookAt(lastViewerT.x, mesh.position.y, lastViewerT.z);
       mesh._noteCanvas = c;
       mesh._noteTex = tex;
       scene.add(mesh);
@@ -302,21 +309,65 @@ export default function ImmersiveScan({ onCapture, onExit }) {
       ctx.clearRect(0, 0, 512, 320);
       ctx.fillStyle = '#fef08a';
       rrect(ctx, 0, 0, 512, 320, 20); ctx.fill();
-      ctx.fillStyle = '#ca8a04';
-      ctx.font = 'bold 22px Arial'; ctx.textAlign = 'center';
-      ctx.fillText('Voice Note', 256, 36);
+      // Recording indicator bar
+      ctx.fillStyle = '#1c1917'; ctx.fillRect(0, 0, 512, 56);
+      rrect(ctx, 0, 0, 512, 56, 20); ctx.fillStyle = '#1c1917'; ctx.fill();
+      ctx.fillStyle = '#fbbf24'; ctx.font = 'bold 20px Arial'; ctx.textAlign = 'center';
+      ctx.fillText('🎙 Recording...', 256, 36);
       ctx.fillStyle = '#1c1917';
       ctx.font = '20px Arial'; ctx.textAlign = 'left';
       const words = text.split(' ');
-      let line = '', y = 80;
+      let line = '', y = 90;
       for (const w of words) {
         const test = line + w + ' ';
         if (ctx.measureText(test).width > 460 && line) { ctx.fillText(line, 26, y); line = w + ' '; y += 28; }
         else line = test;
       }
       if (line) ctx.fillText(line.trim(), 26, y);
-      ctx.fillStyle = '#ca8a04'; ctx.font = '16px Arial'; ctx.textAlign = 'center';
-      ctx.fillText('Pull trigger to save', 256, 300);
+      mesh._noteTex.needsUpdate = true;
+    }
+
+    function updateStickyFinal(mesh, noteEntry, playing = false) {
+      const c = mesh._noteCanvas;
+      const ctx = c.getContext('2d');
+      ctx.clearRect(0, 0, 512, 320);
+      // Background
+      ctx.fillStyle = '#fef08a';
+      rrect(ctx, 0, 0, 512, 320, 20); ctx.fill();
+      // Top bar with play button
+      rrect(ctx, 0, 0, 512, 62, 20); ctx.fillStyle = '#1c1917'; ctx.fill();
+      ctx.fillRect(0, 42, 512, 20);
+      // Play button circle (UV: x<0.15, y>0.81 in Three.js UV space)
+      ctx.fillStyle = noteEntry.audioUrl ? (playing ? '#0d9488' : '#34d399') : '#6b7280';
+      ctx.beginPath(); ctx.arc(38, 31, 22, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#fff'; ctx.font = 'bold 18px Arial'; ctx.textAlign = 'center';
+      ctx.fillText(playing ? '⏸' : '▶', 39, 37);
+      // Waveform bars next to play button
+      ctx.fillStyle = '#34d399';
+      const bars = [8, 16, 24, 12, 20, 28, 14, 22, 18, 26, 10, 22, 16];
+      bars.forEach((h, i) => {
+        ctx.fillRect(72 + i * 28, 31 - h / 2, 12, h);
+      });
+      // Transcribed text
+      ctx.fillStyle = '#1c1917'; ctx.font = 'bold 18px Arial'; ctx.textAlign = 'left';
+      const text = noteEntry.text || '(no transcript)';
+      const words = text.split(' ');
+      let line = '', y = 100;
+      for (const w of words) {
+        const test = line + w + ' ';
+        if (ctx.measureText(test).width > 460 && line) { ctx.fillText(line, 26, y); line = w + ' '; y += 26; }
+        else line = test;
+        if (y > 220) { ctx.fillText(line.trim() + '…', 26, y); line = null; break; }
+      }
+      if (line) ctx.fillText(line.trim(), 26, y);
+      // Bottom geo + timestamp bar
+      ctx.fillStyle = 'rgba(0,0,0,0.12)'; ctx.fillRect(0, 268, 512, 52);
+      ctx.fillStyle = '#78716c'; ctx.font = '14px Arial'; ctx.textAlign = 'center';
+      const geo = (noteEntry.lat != null && noteEntry.lng != null)
+        ? `${noteEntry.lat.toFixed(5)}°, ${noteEntry.lng.toFixed(5)}°`
+        : 'GPS unavailable';
+      ctx.fillText(geo, 256, 288);
+      ctx.fillText(noteEntry.timestamp || '', 256, 308);
       mesh._noteTex.needsUpdate = true;
     }
 
@@ -333,6 +384,9 @@ export default function ImmersiveScan({ onCapture, onExit }) {
     let audioSource = null;
     let audioProcessor = null;
     let micStream = null;
+    let mediaRecorder = null;
+    let audioChunks = [];
+    let pendingGeo = null; // { lat, lng } fetched at note start
     let activeNoteCallbacks = null; // { mesh, noteEntry }
 
     function saveNotes() {
@@ -370,13 +424,20 @@ export default function ImmersiveScan({ onCapture, onExit }) {
         }
       }
 
-      // 2. Open microphone
+      // 3. Open microphone
       try {
         micStream = await navigator.mediaDevices.getUserMedia({
           audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
           video: false,
         });
         rlog('vosk mic opened');
+        // Start MediaRecorder to capture audio blob for playback
+        audioChunks = [];
+        try {
+          mediaRecorder = new MediaRecorder(micStream);
+          mediaRecorder.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
+          mediaRecorder.start();
+        } catch (_e) { mediaRecorder = null; }
       } catch (e) {
         rlog('vosk mic denied', e.message);
         if (meshSnapshot) updateStickyText(meshSnapshot, 'Mic denied.');
@@ -440,16 +501,40 @@ export default function ImmersiveScan({ onCapture, onExit }) {
         try { voskRecognizer.free(); } catch (_) {}
         voskRecognizer = null;
       }
-      stopVoskAudio();
 
       const text = activeNoteCallbacks?.noteEntry?.text?.trim() ?? '';
       rlog('stopVosk saving text', text);
+
       if (activeNoteCallbacks) {
         const { mesh, noteEntry } = activeNoteCallbacks;
-        if (mesh) updateStickyText(mesh, text || '(empty note)');
         if (noteEntry) noteEntry.text = text;
+        noteEntry.lat = pendingGeo?.lat ?? null;
+        noteEntry.lng = pendingGeo?.lng ?? null;
+        noteEntry.timestamp = new Date().toLocaleString();
+
+        const finalize = () => {
+          if (mesh) updateStickyFinal(mesh, noteEntry);
+          stickyNotes.push({ mesh, noteEntry });
+        };
+
+        if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+          mediaRecorder.onstop = () => {
+            const blob = new Blob(audioChunks, { type: 'audio/webm' });
+            noteEntry.audioUrl = URL.createObjectURL(blob);
+            mediaRecorder = null;
+            finalize();
+          };
+          mediaRecorder.stop();
+        } else {
+          noteEntry.audioUrl = null;
+          mediaRecorder = null;
+          finalize();
+        }
+
         if (text) saveNotes();
       }
+
+      stopVoskAudio();
       activeNoteCallbacks = null;
       annotating = false; pendingNotePos = null; activeStickyMesh = null;
       vPanel.visible = false; drawStatus();
@@ -518,6 +603,25 @@ export default function ImmersiveScan({ onCapture, onExit }) {
     }
 
     async function start() {
+      // Fetch geolocation once before XR session starts — permission dialogs during XR exit the session on Quest
+      // Use watchPosition so we get the best available fix; first result wins
+      if (navigator.geolocation) {
+        let watchId = null;
+        pendingGeo = await new Promise(resolve => {
+          const done = (geo) => {
+            if (watchId != null) navigator.geolocation.clearWatch(watchId);
+            resolve(geo);
+          };
+          watchId = navigator.geolocation.watchPosition(
+            p => done({ lat: p.coords.latitude, lng: p.coords.longitude }),
+            () => done(null),
+            { timeout: 8000, maximumAge: 60000, enableHighAccuracy: true }
+          );
+          // Hard cap — don't block XR session start indefinitely
+          setTimeout(() => done(pendingGeo), 8000);
+        });
+      }
+
       try {
         stream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
@@ -630,6 +734,25 @@ export default function ImmersiveScan({ onCapture, onExit }) {
       cursor.visible = false;
       scene.add(cursor);
 
+      // Note placement preview — small floating yellow square shown during scanning
+      // so the user can see exactly where (and how far) the note will land before triggering
+      const notePreviewCanvas = document.createElement('canvas');
+      notePreviewCanvas.width = 128; notePreviewCanvas.height = 128;
+      const npc = notePreviewCanvas.getContext('2d');
+      npc.fillStyle = '#fef08a';
+      npc.beginPath(); npc.roundRect(4, 4, 120, 120, 16); npc.fill();
+      npc.strokeStyle = '#ca8a04'; npc.lineWidth = 4;
+      npc.beginPath(); npc.roundRect(4, 4, 120, 120, 16); npc.stroke();
+      npc.fillStyle = '#ca8a04'; npc.font = 'bold 52px Arial'; npc.textAlign = 'center'; npc.textBaseline = 'middle';
+      npc.fillText('🎙', 64, 64);
+      const notePreviewTex = new THREE.CanvasTexture(notePreviewCanvas);
+      const notePreview = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.08, 0.08),
+        new THREE.MeshBasicMaterial({ map: notePreviewTex, transparent: true, depthWrite: false, side: THREE.DoubleSide })
+      );
+      notePreview.visible = false;
+      scene.add(notePreview);
+
       // Controller rays
       const rayGeo = new THREE.BufferGeometry().setFromPoints([
         new THREE.Vector3(0, 0, 0),
@@ -724,7 +847,7 @@ export default function ImmersiveScan({ onCapture, onExit }) {
         }
 
         // Floor cursor — follows ray intersection during setup/confirm so user sees landing point
-        if (WHEEL_PHASES.includes(phase) || phase === 'confirm') {
+        if (WHEEL_PHASES.includes(phase)) {
           const floorPt = rayFloorIntersect(lastControllerPoses, lastFloorY);
           if (floorPt) {
             cursor.position.set(floorPt.x, lastFloorY + 0.01, floorPt.z);
@@ -768,6 +891,46 @@ export default function ImmersiveScan({ onCapture, onExit }) {
 
           if (time - lastRingUpdate > 100) { lastRingUpdate = time; updateRing(); }
           if (time - lastPanelDraw > 150) { lastPanelDraw = time; drawStatus(); }
+
+          // Only the active (in-progress) note tracks the viewer — saved notes stay fixed
+          if (activeStickyMesh) activeStickyMesh.lookAt(tx, activeStickyMesh.position.y, tz);
+
+          // Grip held → compute and show note placement preview
+          if (gripHeld && !annotating && grippedStickyIdx === -1 && lastControllerPoses.length > 0) {
+            let previewPos = null;
+            const floorHit = rayFloorIntersect(lastControllerPoses, lastFloorY);
+            if (floorHit && carCenter) {
+              const dx = floorHit.x - carCenter.x, dz = floorHit.z - carCenter.z;
+              if (Math.sqrt(dx * dx + dz * dz) <= scanRadius + 0.6) {
+                const noteY = lastViewerT ? lastViewerT.y - 0.5 : lastFloorY + 0.6;
+                previewPos = { x: floorHit.x, y: Math.max(noteY, lastFloorY + 0.3), z: floorHit.z };
+              }
+            }
+            if (!previewPos) {
+              const p = lastControllerPoses[0];
+              const dir = new THREE.Vector3(0, 0, -1)
+                .applyQuaternion(new THREE.Quaternion(p.qx, p.qy, p.qz, p.qw)).normalize();
+              previewPos = { x: p.x + dir.x * 1.5, y: p.y + dir.y * 1.5, z: p.z + dir.z * 1.5 };
+            }
+            gripPreviewPos = previewPos;
+            notePreview.position.set(previewPos.x, previewPos.y, previewPos.z);
+            notePreview.quaternion.copy(quat);
+            notePreview.visible = true;
+          } else {
+            notePreview.visible = false;
+          }
+
+          // Grip dragging a saved sticky note — follow controller ray at 1m
+          if (grippedStickyIdx !== -1 && lastControllerPoses.length > 0) {
+            const p = lastControllerPoses[0];
+            const dir = new THREE.Vector3(0, 0, -1)
+              .applyQuaternion(new THREE.Quaternion(p.qx, p.qy, p.qz, p.qw)).normalize();
+            stickyNotes[grippedStickyIdx].mesh.position.set(
+              p.x + dir.x * 1.0, p.y + dir.y * 1.0, p.z + dir.z * 1.0
+            );
+          }
+        } else {
+          notePreview.visible = false;
         }
 
         renderer.render(scene, xrCam);
@@ -868,58 +1031,92 @@ export default function ImmersiveScan({ onCapture, onExit }) {
         }
 
         if (phase === 'scanning') {
-          if (annotating) {
-            stopVosk();
-            return;
-          }
+          if (annotating) { stopVosk(); return; }
 
-          if (voskRecognizer) return; // debounce: already recording
-
-          // 1. Ray → floor; if hit lands inside scan ring → float note at waist height there
-          const floorHit = rayFloorIntersect(lastControllerPoses, lastFloorY);
-          if (floorHit && carCenter) {
-            const dx = floorHit.x - carCenter.x, dz = floorHit.z - carCenter.z;
-            if (Math.sqrt(dx * dx + dz * dz) <= scanRadius + 0.6) {
-              const noteY = lastViewerT ? lastViewerT.y - 0.5 : lastFloorY + 0.6;
-              pendingNotePos = { x: floorHit.x, y: Math.max(noteY, lastFloorY + 0.3), z: floorHit.z };
+          // Trigger = play/pause a saved sticky note (aim at its play button)
+          if (stickyNotes.length > 0) {
+            for (const p of lastControllerPoses) {
+              const origin = new THREE.Vector3(p.x, p.y, p.z);
+              const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(new THREE.Quaternion(p.qx, p.qy, p.qz, p.qw)).normalize();
+              const hits = new THREE.Raycaster(origin, dir).intersectObjects(stickyNotes.map(n => n.mesh));
+              if (hits.length > 0 && hits[0].uv) {
+                const { x: u, y: v } = hits[0].uv;
+                if (u < 0.15 && v > 0.81) {
+                  const hit = stickyNotes.find(n => n.mesh === hits[0].object);
+                  if (hit?.noteEntry?.audioUrl) {
+                    if (activeAudio && activeAudioMesh === hit.mesh) {
+                      activeAudio.pause(); activeAudio = null; activeAudioMesh = null;
+                      updateStickyFinal(hit.mesh, hit.noteEntry, false);
+                    } else {
+                      if (activeAudio) {
+                        activeAudio.pause();
+                        const prev = stickyNotes.find(n => n.mesh === activeAudioMesh);
+                        if (prev) updateStickyFinal(prev.mesh, prev.noteEntry, false);
+                      }
+                      activeAudio = new Audio(hit.noteEntry.audioUrl);
+                      activeAudioMesh = hit.mesh;
+                      updateStickyFinal(hit.mesh, hit.noteEntry, true);
+                      activeAudio.onended = () => {
+                        activeAudio = null; activeAudioMesh = null;
+                        updateStickyFinal(hit.mesh, hit.noteEntry, false);
+                      };
+                      activeAudio.play().catch(() => {});
+                    }
+                    return;
+                  }
+                }
+              }
             }
           }
-          // 2. Controller ray at 1.5m (works outside ring too)
-          if (!pendingNotePos && lastControllerPoses.length > 0) {
-            const p = lastControllerPoses[0];
-            const dir = new THREE.Vector3(0, 0, -1)
-              .applyQuaternion(new THREE.Quaternion(p.qx, p.qy, p.qz, p.qw)).normalize();
-            pendingNotePos = { x: p.x + dir.x * 1.5, y: p.y + dir.y * 1.5, z: p.z + dir.z * 1.5 };
-          }
-          // 3. Viewer forward fallback
-          if (!pendingNotePos && lastViewerT && lastViewerFwd) {
-            pendingNotePos = { x: lastViewerT.x + lastViewerFwd.x * 1.5, y: lastViewerT.y - 0.2, z: lastViewerT.z + lastViewerFwd.z * 1.5 };
-          }
-
-          if (pendingNotePos && scene) activeStickyMesh = makeStickyNote(pendingNotePos);
-
-          // Capture real azimuth from viewer position for accurate direction label
-          const noteAzDeg = (carCenter && lastViewerT)
-            ? ((Math.atan2(lastViewerT.z - carCenter.z, lastViewerT.x - carCenter.x) * 180 / Math.PI) + 360) % 360
-            : currentBucket * BUCKET_DEG;
-          const noteEntry = {
-            id: String(Date.now()),
-            text: '',
-            angle: noteAzDeg,
-            position3d: pendingNotePos,
-          };
-          voiceNotes.push(noteEntry);
-
-          const meshSnapshot = activeStickyMesh;
-          const noteSnapshot = noteEntry;
-
-          annotating = true;
-          vPanel.visible = true;
-          drawVoice('Recording...');
-          console.log('[vosk] opening, pos=', pendingNotePos);
-          startVosk(meshSnapshot, noteSnapshot);
-          drawStatus();
         }
+        // Note creation is on grip (squeezeend) — see handler below
+      });
+
+      // Grip press — either grab a saved sticky note to reposition, or arm placement preview
+      session.addEventListener('squeezestart', () => {
+        if (phase !== 'scanning' || annotating) return;
+        // Check if ray hits a saved sticky note — grab it
+        for (const p of lastControllerPoses) {
+          const origin = new THREE.Vector3(p.x, p.y, p.z);
+          const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(new THREE.Quaternion(p.qx, p.qy, p.qz, p.qw)).normalize();
+          const hits = new THREE.Raycaster(origin, dir).intersectObjects(stickyNotes.map(n => n.mesh));
+          if (hits.length > 0) {
+            grippedStickyIdx = stickyNotes.findIndex(n => n.mesh === hits[0].object);
+            return;
+          }
+        }
+        // No note hit — arm the placement preview
+        gripHeld = true;
+        gripPreviewPos = null;
+      });
+
+      // Grip release — drop grabbed note or create new note at preview position
+      session.addEventListener('squeezeend', () => {
+        // Releasing a grabbed note — just drop it
+        if (grippedStickyIdx !== -1) {
+          grippedStickyIdx = -1;
+          return;
+        }
+        // Releasing grip — create note at preview position and start recording
+        if (!gripHeld || !gripPreviewPos || annotating) { gripHeld = false; return; }
+        gripHeld = false;
+        notePreview.visible = false;
+
+        pendingNotePos = gripPreviewPos;
+        gripPreviewPos = null;
+        if (scene) activeStickyMesh = makeStickyNote(pendingNotePos);
+
+        const noteAzDeg = (carCenter && lastViewerT)
+          ? ((Math.atan2(lastViewerT.z - carCenter.z, lastViewerT.x - carCenter.x) * 180 / Math.PI) + 360) % 360
+          : currentBucket * BUCKET_DEG;
+        const noteEntry = { id: String(Date.now()), text: '', angle: noteAzDeg, position3d: pendingNotePos };
+        voiceNotes.push(noteEntry);
+
+        annotating = true;
+        vPanel.visible = true;
+        drawVoice('Recording...');
+        startVosk(activeStickyMesh, noteEntry);
+        drawStatus();
       });
 
       session.addEventListener('end', () => {

@@ -158,7 +158,7 @@ export default function ImmersiveAnnotate({ coverageDecisions = [], voiceNotes =
         ctx.fillStyle = '#0d9488';
         rrect(ctx, 0, 0, W, H, 20); ctx.fill();
         ctx.fillStyle = 'white'; ctx.font = 'bold 30px Arial'; ctx.textAlign = 'center';
-        ctx.fillText('Continue to Review  →', W / 2, H / 2 + 10);
+        ctx.fillText('Pull trigger to continue  →', W / 2, H / 2 + 10);
       });
       scene.add(continueBtn);
 
@@ -214,13 +214,15 @@ export default function ImmersiveAnnotate({ coverageDecisions = [], voiceNotes =
       });
 
       session.addEventListener('selectend', () => {
+        // Exit button requires aimed ray; any other trigger pull = continue
         for (const p of lastPoses) {
           const origin = new THREE.Vector3(p.x, p.y, p.z);
           const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(new THREE.Quaternion(p.qx, p.qy, p.qz, p.qw)).normalize();
-          const rc = new THREE.Raycaster(origin, dir);
-          if (rc.intersectObject(continueBtn).length > 0) { session.end().catch(() => {}); onComplete(); return; }
-          if (rc.intersectObject(exitBtn).length > 0) { session.end().catch(() => {}); onExit(); return; }
+          if (new THREE.Raycaster(origin, dir).intersectObject(exitBtn).length > 0) {
+            session.end().catch(() => {}); onExit(); return;
+          }
         }
+        session.end().catch(() => {});
       });
 
       session.addEventListener('end', () => {
