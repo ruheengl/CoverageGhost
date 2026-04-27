@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Vosk Test</title>
+  <style>
+    body { font-family: monospace; padding: 24px; background: #0f172a; color: #e2e8f0; }
+    button { padding: 12px 24px; font-size: 16px; margin: 8px; cursor: pointer; border-radius: 8px; border: none; }
+    #start { background: #0d9488; color: white; }
+    #stop { background: #ef4444; color: white; }
+    #log { margin-top: 24px; background: #1e293b; padding: 16px; border-radius: 8px; min-height: 200px; white-space: pre-wrap; font-size: 13px; }
+    #transcript { margin-top: 16px; background: #1e293b; padding: 16px; border-radius: 8px; font-size: 18px; color: #34d399; min-height: 60px; }
+  </style>
+</head>
+<body>
+  <h2>Vosk STT Test</h2>
+  <button id="start">Start Recording</button>
+  <button id="stop" disabled>Stop</button>
+  <div id="transcript">(transcript appears here)</div>
+  <div id="log">Log:\n</div>
+
+  <script src="/node_modules/vosk-browser/dist/vosk.js"></script>
+  <script>
+    const { createModel } = Vosk;
+
+    const logEl = document.getElementById('log');
+    const transcriptEl = document.getElementById('transcript');
+
+    function log(msg) {
+      const ts = new Date().toISOString().slice(11, 23);
+      logEl.textContent += `[${ts}] ${msg}\n`;
+      console.log(msg);
+    }
+
+    let model = null, recognizer = null, audioContext = null, processor = null, source = null, stream = null;
+
+    document.getElementById('start').onclick = async () => {
+      document.getElementById('start').disabled = true;
+      document.getElementById('stop').disabled = false;
+
+      if (!model) {
+        log('Loading model from /assets/vosk-model-small-en-us-0.15.tar.gz ...');
+        try {
+          model = await Promise.race([
+            createModel('/assets/vosk-model-small-en-us-0.15.tar.gz'),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 30000)),
+          ]);
+          log('Model loaded OK');
+        } catch (e) {
+          log('Model load FAILED: ' + e.message);
+          document.getElementById('start').disabled = false;
+          return;
+        }
+      }
+
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      const track = stream.getAudioTracks()[0];
+      log('Mic opened: ' + track.label + ' | enabled=' + track.enabled + ' | muted=' + track.muted + ' | readyState=' + track.readyState);
+      log('Settings: ' + JSON.stringify(track.getSettings()));
+
+      audioContext = new AudioContext();
+      await audioContext.resume();
+      log('AudioContext sampleRate: ' + audioContext.sampleRate);
+
+      recognizer = new model.KaldiRecognizer(audioContext.sampleRate);
+      recognizer.on('result', (msg) => {
+        log('result: ' + JSON.stringify(msg));
+        if (msg.result?.text) transcriptEl.textContent = msg.result.text;
+      });
+      recognizer.on('partialresult', (msg) => {
+        log('partial: ' + JSON.stringify(msg));
+        if (msg.result?.partial) transcriptEl.textContent = msg.result.partial + '...';
+      });
+
+      source = audioContext.createMediaStreamSource(stream);
+      processor = audioContext.createScriptProcessor(4096, 1, 1);
+      let frameCount = 0;
+      processor.onaudioprocess = (e) => {
+        const data = e.inputBuffer.getChannelData(0);
+        let max = 0;
+        for (let i = 0; i < data.length; i++) if (Math.abs(data[i]) > max) max = Math.abs(data[i]);
+        frameCount++;
+        if (frameCount % 10 === 0) log(`audio frame ${frameCount}, max amplitude: ${max.toFixed(4)}`);
+        try { recognizer.acceptWaveform(e.inputBuffer); } catch(err) { log('acceptWaveform error: ' + err.message); }
+      };
+      source.connect(processor);
+      processor.connect(audioContext.destination);
+      log('Recording... speak now');
+    };
+
+    document.getElementById('stop').onclick = () => {
+      document.getElementById('stop').disabled = true;
+      document.getElementById('start').disabled = false;
+      try { processor?.disconnect(); source?.disconnect(); audioContext?.close(); } catch(_) {}
+      stream?.getTracks().forEach(t => t.stop());
+      if (recognizer) { try { recognizer.free(); } catch(_) {} recognizer = null; }
+      log('Stopped');
+    };
+  </script>
+</body>
+</html>

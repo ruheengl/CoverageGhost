@@ -41,7 +41,8 @@ export default function App() {
       {scene === 'annotate' && (
         <AnnotateScene claim={claim} damageData={damageData}
           coverageDecisions={coverageDecisions} coverageMap={coverageMap}
-          splatUrl={splatUrl} voiceNotes={voiceNotes} onComplete={() => setScene('review')} />
+          splatUrl={splatUrl} voiceNotes={voiceNotes}
+          onComplete={() => setScene('review')} />
       )}
       {scene === 'review' && (
         <ReviewScene claim={claim} damageData={damageData}

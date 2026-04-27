@@ -14,8 +14,15 @@ app.use('/check-coverage', require('./routes/checkCoverage'));
 app.use('/ocr-document',   require('./routes/ocrDocument'));
 app.use('/save-frame',     require('./routes/saveFrame'));
 app.use('/scan-frame',     require('./routes/scanFrame'));
+app.use('/notes',            require('./routes/saveNotes'));
 
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
+
+app.post('/log', (req, res) => {
+  const { msg, data } = req.body;
+  console.log('[frontend]', msg, data !== undefined ? JSON.stringify(data) : '');
+  res.json({ ok: true });
+});
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => console.log(`Backend on port ${PORT}`));

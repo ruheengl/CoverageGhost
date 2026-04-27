@@ -7,7 +7,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Lumen(Coverage Ghost) is an AI-powered spatial insurance claims companion built for XRCC 2026 (PICO / WebSpatial track). It lets users scan a damaged vehicle, runs AI analysis against an insurance policy, and displays color-coded coverage decisions overlaid on a 3D wireframe model — viewable on Meta Quest or PICO headsets.
 
 ## Current Hardware Target
-Primary development and testing device is **Meta Quest** (Chromium-based browser). Apple Vision Pro was tested but dropped — visionOS Safari blocks live camera feed rendering in web pages and restricts main camera access to enterprise native apps only. Meta Quest Browser supports `getUserMedia` with live video preview, `capture="environment"` file inputs, Web Speech API, and WebXR — all required for the full demo flow.
+Primary development and testing device is **Meta Quest** (Chromium-based browser). Apple Vision Pro was tested but dropped — visionOS Safari blocks live camera feed rendering in web pages and restricts main camera access to enterprise native apps only. Meta Quest Browser supports `getUserMedia` with live video preview, `capture="environment"` file inputs, and WebXR — all required for the full demo flow.
+
+**Note:** Web Speech API is NOT available on Meta Quest Browser (Google proprietary). Voice notes use **Vosk WASM** (`vosk-browser` npm package) — offline, free, no API key required.
 
 # LUMEN — High Level Design
 **XRCC 2026 Hackathon | Pico Tech Track**
@@ -94,10 +96,10 @@ Angle-bucket scan (Polycam-style):
 → Distance gate: if agent < 0.8m from car edge → pause + "Step back"
 → For each bucket: capture sharpest frame (pixel variance) at ≤ 500ms interval
 → Progress ring shows 18 arcs, gray → teal as buckets fill
-→ Annotation: agent pulls trigger → voice note (Web Speech API) recorded
-  - Last clean frame frozen for that bucket before annotation opens
-  - Transcript saved with bucket angle
-  - Pull trigger again → note saved, scan resumes
+→ Annotation: agent pulls trigger → voice note (Vosk WASM STT) recorded
+  - Sticky note mesh created at floor hit point inside scan ring
+  - Vosk partial results update sticky note text live as user speaks
+  - Pull trigger again → note saved to voiceNotes[], POSTed to /api/notes
 → 12+ buckets filled + trigger → scan complete
 
 Processing (ScanScene.jsx 'generating' stage):
@@ -113,7 +115,7 @@ AnnotateScene receives:
 → coverageDecisions → StickyNote overlays + color-coded annotation list
 → voiceNotes [{text, angle}] → Field Notes sidebar (right panel)
   - Each note shows directional label (Front/Left/Rear etc.) + transcript
-  - Angle computed from bucket index during scan
+  - Angle computed from actual viewer azimuth via atan2 at capture time
 
 Agent reviews 3D model with coverage color overlay and voice note sidebar
 → Continues to ReviewScene for claim summary
@@ -151,7 +153,7 @@ Agent taps Submit
 │  │  ├── UI Panels (@webspatial/sdk SpatialDiv)      │   │
 │  │  ├── WebXR Session (@react-three/xr)             │   │
 │  │  ├── Gaussian Splat Renderer (Spark / gsplat.js) │   │
-│  │  ├── Voice Notes (Web Speech API — on-device)    │   │
+│  │  ├── Voice Notes (Vosk WASM — offline, on-device) │   │
 │  │  └── State Management (Zustand)                  │   │
 │  └──────────────────┬──────────────────────────────┘   │
 └─────────────────────┼───────────────────────────────────┘
@@ -224,6 +226,10 @@ Scene state lives entirely in `App.jsx` and is passed down as props — no globa
 | `POST /analyze-damage` | Sends image to TAMU AI with `damagePrompt`; returns damage JSON |
 | `POST /check-coverage` | Sends damage JSON + policy to TAMU AI with `coveragePrompt`; returns coverage decisions |
 | `POST /ocr-document` | Sends image to TAMU AI with `ocrPrompt`; extracts structured text from policy docs |
+| `POST /save-frame` | Saves a captured frame to `backend/debug-images/` |
+| `GET /scan-frame` | Serves saved scan frames |
+| `POST /notes` | Saves voiceNotes array to `backend/debug-images/scan-{scanId}/notes.json` |
+| `POST /log` | Logs frontend debug messages to the backend terminal (dev only) |
 
 ### AI Prompts (`backend/prompts/`)
 All prompts instruct the model to return **only valid JSON** with no markdown. `parseJsonResponse()` strips any accidental code fences.
@@ -235,6 +241,20 @@ All prompts instruct the model to return **only valid JSON** with no markdown. `
 Place in `frontend/public/assets/`:
 - `teex-car.glb` — wireframe mesh for coverage overlay
 - `teex-car.spz` — Gaussian splat for immersive view
+- `vosk-model-small-en-us-0.15.tar.gz` — Vosk offline STT model (~40MB)
+
+**Vosk model setup:**
+```powershell
+cd frontend/public/assets
+Invoke-WebRequest https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip -OutFile model.zip
+Expand-Archive model.zip .
+cd vosk-model-small-en-us-0.15
+tar -czf ..\vosk-model-small-en-us-0.15.tar.gz .
+cd ..
+Remove-Item model.zip
+Remove-Item vosk-model-small-en-us-0.15 -Recurse
+```
+The model is cached in IndexedDB after first load. If you get "does not contain model files" error, clear IndexedDB for the origin (DevTools → Application → IndexedDB, or use incognito window).
 
 ## Key Constraints
 
@@ -245,10 +265,14 @@ Place in `frontend/public/assets/`:
 - `webspatial-builder run` is NOT required for PICO emulator testing — open the network URL directly in the PICO browser. Only needed for packaged App Store builds.
 - WebXR `immersive-ar` passthrough scan works on real Meta Quest 3 and real PICO 4. Does NOT work on PICO emulator (no real cameras) — expected and acceptable.
 - WebSpatial `volume` scene works on real PICO with native WebSpatial shell and on PICO emulator. Falls back to flat 2D on Meta Quest browser (fine for testing).
+- **Vosk WASM requires `SharedArrayBuffer`** — Vite is configured with `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: credentialless` headers. If WebXR fails to launch on Quest, these headers may be the cause.
+- **`/vosk-test.html`** — standalone test page at `frontend/public/vosk-test.html` for testing Vosk STT on desktop without needing WebXR.
 
 ## Spatial Architecture
 - **WebSpatial SDK** — floating 3D UI panels for login/review/annotate. Scene configured as `volume` via `frontend/public/manifest.json` `main_scene` field.
-- **WebXR `immersive-ar`** — scan phase only. Activates color passthrough on Quest 3 / PICO 4. `ImmersiveScan.jsx` manages the full scan state machine: two-tap car placement (hit-test), angle-bucket frame capture (18 × 20° arcs), voice annotation via Web Speech API, fake splat generation animation.
+- **WebXR `immersive-ar`** — scan phase only. Activates color passthrough on Quest 3 / PICO 4. `ImmersiveScan.jsx` manages the full scan state machine: 4-wheel placement (hit-test spheres) → confirm button → scan ring appears → angle-bucket frame capture (5 × 72° buckets) → voice annotation via Vosk WASM.
+- **Wheel placement flow**: 4 spheres placed by trigger on floor → "Confirm" button appears → tap to lock wheels → `recomputeCarGeometry` → `phase = 'scanning'` → blue ring + sticky notes activate.
 - **Detection in `ScanScene.jsx`**: WebSpatial shell (`/WebSpatial\//.test(userAgent)`) → CameraCapture (PICO path); WebXR AR supported → ImmersiveScan (Quest path); neither → CameraCapture fallback (desktop).
 - **Gaussian splat**: `teex-car.spz` served from `/assets/`. Displayed in `GaussianViewer.jsx` (Spark renderer). Generation is faked with a 6-second animation after AI analysis completes — World Labs API only accepts 4 images which is insufficient for vehicle reconstruction.
-- **Voice notes**: Captured during ImmersiveScan via Web Speech API, stored as `[{text, angle}]`. Passed through `ScanScene.onComplete` → `App.jsx` state → `AnnotateScene` Field Notes sidebar.
+- **Voice notes**: Captured during ImmersiveScan via Vosk WASM (`vosk-browser`). Stored as `[{id, text, angle, position3d}]`. Passed through `ScanScene.onComplete` → `App.jsx` state → `AnnotateScene` Field Notes sidebar. Also POSTed to `/api/notes` → `backend/debug-images/scan-{id}/notes.json`.
+- **`rlog(msg, data)`** helper in ImmersiveScan — POSTs debug messages to `/api/log` which prints to the backend terminal. Use for Quest debugging.

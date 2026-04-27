@@ -2,10 +2,8 @@ import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { scanFrame } from '../lib/api';
 
-const BUCKETS = 18;
+const BUCKETS = 5;
 const BUCKET_DEG = 360 / BUCKETS;
-// DEBUG: set to 0 so scan can be completed at any time regardless of coverage.
-// Change back to 12 (two-thirds of 18 buckets) for production.
 const MIN_BUCKETS_COMPLETE = 0;
 
 // 4-wheel setup phases in order
@@ -25,8 +23,6 @@ export default function ImmersiveScan({ onCapture, onExit }) {
     let voiceNotes = [];
     let annotating = false;
     let tooClose = false;
-    let currentTranscript = '';
-    let recognition = null;
     let lastHitPoint = null;
     let lastViewerT = null, lastViewerFwd = null;
     let lastFloorY = 0; // real floor Y in current reference space, updated via hit-test
@@ -34,13 +30,16 @@ export default function ImmersiveScan({ onCapture, onExit }) {
     let lastPanelDraw = 0;
     let lastRingUpdate = 0;
     let currentBucket = 0;
-    let renderer, session, refSpace, hitTestSource, stream;
+    let renderer, session, scene, refSpace, hitTestSource, stream;
     let ringMeshes = [];
     const scanId = Date.now();
     let analysisInFlight = false;
     let lastControllerPoses = []; // cached each XR frame from targetRaySpace
     let lastDebugPt = null; // last placed wheel point for on-screen debug
     let grabbedSphereIdx = -1; // index of wheel sphere currently being dragged (-1 = none)
+    let pendingNotePos = null; // 3D hit point captured on first trigger press, attached to note on second
+    let activeStickyMesh = null; // the live sticky note mesh being recorded into
+    let wheelsLocked = false; // true after user confirms wheel placement
 
     // Head-locked status panel (text only — no 2D ring)
     const mCanvas = document.createElement('canvas');
@@ -65,7 +64,7 @@ export default function ImmersiveScan({ onCapture, onExit }) {
     function drawSetup(stepIdx) {
       const label = WHEEL_LABELS[stepIdx];
       mc.clearRect(0, 0, 512, 256);
-      mc.fillStyle = 'rgba(15,23,42,0.92)';
+      mc.fillStyle = 'rgba(15,23,42,0.65)';
       rrect(mc, 0, 0, 512, 256, 32); mc.fill();
       mc.strokeStyle = WHEEL_COLORS[stepIdx] ? `#${WHEEL_COLORS[stepIdx].toString(16).padStart(6,'0')}` : '#0d9488';
       mc.lineWidth = 3; rrect(mc, 0, 0, 512, 256, 32); mc.stroke();
@@ -97,10 +96,31 @@ export default function ImmersiveScan({ onCapture, onExit }) {
       mTex.needsUpdate = true;
     }
 
+    function drawConfirm() {
+      mc.clearRect(0, 0, 512, 256);
+      mc.fillStyle = 'rgba(15,23,42,0.65)';
+      rrect(mc, 0, 0, 512, 256, 32); mc.fill();
+      mc.strokeStyle = '#22c55e'; mc.lineWidth = 3;
+      rrect(mc, 0, 0, 512, 256, 32); mc.stroke();
+
+      for (let i = 0; i < 4; i++) {
+        mc.beginPath();
+        mc.arc(176 + i * 54, 36, 10, 0, Math.PI * 2);
+        mc.fillStyle = '#0d9488'; mc.fill();
+      }
+
+      mc.fillStyle = 'white'; mc.font = 'bold 26px Arial'; mc.textAlign = 'center';
+      mc.fillText('All 4 wheels placed!', 256, 90);
+      mc.fillStyle = 'rgba(255,255,255,0.55)'; mc.font = '18px Arial';
+      mc.fillText('You can still grab & adjust spheres.', 256, 130);
+      mc.fillText('Tap the button below when ready.', 256, 158);
+      mTex.needsUpdate = true;
+    }
+
     function drawStatus() {
       const filled = buckets.filter(Boolean).length;
       mc.clearRect(0, 0, 512, 256);
-      mc.fillStyle = 'rgba(15,23,42,0.88)';
+      mc.fillStyle = 'rgba(15,23,42,0.65)';
       rrect(mc, 0, 0, 512, 256, 32); mc.fill();
 
       mc.fillStyle = 'white'; mc.font = 'bold 48px Arial'; mc.textAlign = 'center';
@@ -132,7 +152,7 @@ export default function ImmersiveScan({ onCapture, onExit }) {
 
     function drawVoice(text) {
       vc.clearRect(0, 0, 512, 300);
-      vc.fillStyle = 'rgba(15,23,42,0.93)';
+      vc.fillStyle = 'rgba(15,23,42,0.65)';
       rrect(vc, 0, 0, 512, 300, 28); vc.fill();
       vc.strokeStyle = '#fbbf24'; vc.lineWidth = 2.5;
       rrect(vc, 0, 0, 512, 300, 28); vc.stroke();
@@ -149,14 +169,14 @@ export default function ImmersiveScan({ onCapture, onExit }) {
       }
       if (line) vc.fillText(line.trim(), 256, y);
       vc.fillStyle = 'rgba(255,255,255,0.4)'; vc.font = '16px Arial';
-      vc.fillText('Pull trigger to save & continue', 256, 268);
+      vc.fillText('Pull trigger to save', 256, 268);
       vTex.needsUpdate = true;
     }
 
     function drawDamage(damage) {
       const areas = damage?.affected_areas || damage?.damaged_areas || [];
       dc.clearRect(0, 0, 512, 360);
-      dc.fillStyle = 'rgba(15,23,42,0.93)';
+      dc.fillStyle = 'rgba(15,23,42,0.65)';
       rrect(dc, 0, 0, 512, 360, 28); dc.fill();
       dc.strokeStyle = '#34d399'; dc.lineWidth = 2;
       rrect(dc, 0, 0, 512, 360, 28); dc.stroke();
@@ -259,27 +279,180 @@ export default function ImmersiveScan({ onCapture, onExit }) {
       return s2 / n - m * m;
     }
 
-    function startVoice() {
-      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-      if (!SR) { drawVoice('Voice not supported.\nPull trigger to save.'); return; }
-      recognition = new SR();
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      recognition.onresult = e => {
-        let interim = '';
-        for (let i = e.resultIndex; i < e.results.length; i++) {
-          if (e.results[i].isFinal) currentTranscript += e.results[i][0].transcript + ' ';
-          else interim = e.results[i][0].transcript;
-        }
-        drawVoice((currentTranscript + interim).trim() || 'Listening...');
-      };
-      recognition.onerror = () => drawVoice('Mic error. Pull trigger to save.');
-      recognition.start();
+    function makeStickyNote(pos) {
+      const c = document.createElement('canvas');
+      c.width = 512; c.height = 320;
+      const ctx = c.getContext('2d');
+      const tex = new THREE.CanvasTexture(c);
+      const mesh = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.32, 0.2),
+        new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, side: THREE.DoubleSide })
+      );
+      mesh.position.set(pos.x, pos.y + 0.12, pos.z);
+      mesh._noteCanvas = c;
+      mesh._noteTex = tex;
+      scene.add(mesh);
+      updateStickyText(mesh, 'Listening...');
+      return mesh;
     }
 
-    function stopVoice() {
-      try { recognition?.stop(); } catch (_) {}
-      recognition = null;
+    function updateStickyText(mesh, text) {
+      const c = mesh._noteCanvas;
+      const ctx = c.getContext('2d');
+      ctx.clearRect(0, 0, 512, 320);
+      ctx.fillStyle = '#fef08a';
+      rrect(ctx, 0, 0, 512, 320, 20); ctx.fill();
+      ctx.fillStyle = '#ca8a04';
+      ctx.font = 'bold 22px Arial'; ctx.textAlign = 'center';
+      ctx.fillText('Voice Note', 256, 36);
+      ctx.fillStyle = '#1c1917';
+      ctx.font = '20px Arial'; ctx.textAlign = 'left';
+      const words = text.split(' ');
+      let line = '', y = 80;
+      for (const w of words) {
+        const test = line + w + ' ';
+        if (ctx.measureText(test).width > 460 && line) { ctx.fillText(line, 26, y); line = w + ' '; y += 28; }
+        else line = test;
+      }
+      if (line) ctx.fillText(line.trim(), 26, y);
+      ctx.fillStyle = '#ca8a04'; ctx.font = '16px Arial'; ctx.textAlign = 'center';
+      ctx.fillText('Pull trigger to save', 256, 300);
+      mesh._noteTex.needsUpdate = true;
+    }
+
+    // Vosk WASM offline STT state
+    function rlog(msg, data) {
+      console.log('[frontend]', msg, data ?? '');
+      fetch('/api/log', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ msg, data }) }).catch(() => {});
+    }
+
+    let voskModel = null;
+    let voskRecognizer = null;
+    let audioContext = null;
+    let audioSource = null;
+    let audioProcessor = null;
+    let micStream = null;
+    let activeNoteCallbacks = null; // { mesh, noteEntry }
+
+    function saveNotes() {
+      fetch('/api/notes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scanId, notes: voiceNotes }),
+      }).then(r => r.json())
+        .then(() => console.log('[vosk] notes saved, scan:', scanId))
+        .catch(e => console.warn('[vosk] notes save failed:', e));
+    }
+
+    async function startVosk(meshSnapshot, noteSnapshot) {
+      if (voskRecognizer || audioContext) return;
+      activeNoteCallbacks = { mesh: meshSnapshot, noteEntry: noteSnapshot };
+      if (meshSnapshot) updateStickyText(meshSnapshot, 'Loading...');
+      drawVoice('Loading model...');
+
+      // 1. Load model once, cache in closure
+      if (!voskModel) {
+        try {
+          rlog('vosk loading model...');
+          const { createModel } = await import('vosk-browser');
+          // Wrap in timeout — createModel hangs forever on 404 without rejecting
+          voskModel = await Promise.race([
+            createModel('/assets/vosk-model-small-en-us-0.15.tar.gz'),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('timeout after 30s — model file missing?')), 30000)),
+          ]);
+          rlog('vosk model loaded OK');
+        } catch (e) {
+          rlog('vosk model load FAILED', e.message);
+          if (meshSnapshot) updateStickyText(meshSnapshot, 'Model missing.\nAdd vosk-model-small-en-us-0.15.tar.gz to /assets/');
+          drawVoice('Voice unavailable: model file missing. Trigger to cancel.');
+          return;
+        }
+      }
+
+      // 2. Open microphone
+      try {
+        micStream = await navigator.mediaDevices.getUserMedia({
+          audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
+          video: false,
+        });
+        rlog('vosk mic opened');
+      } catch (e) {
+        rlog('vosk mic denied', e.message);
+        if (meshSnapshot) updateStickyText(meshSnapshot, 'Mic denied.');
+        drawVoice('Mic denied — trigger to cancel');
+        return;
+      }
+
+      // 3. Web Audio pipeline
+      audioContext = new AudioContext();
+      await audioContext.resume();
+      audioSource = audioContext.createMediaStreamSource(micStream);
+      audioProcessor = audioContext.createScriptProcessor(4096, 1, 1);
+
+      // 4. Create recognizer at the actual hardware sample rate
+      voskRecognizer = new voskModel.KaldiRecognizer(audioContext.sampleRate);
+
+      voskRecognizer.on('result', (msg) => {
+        const text = msg.result?.text?.trim();
+        if (!text) return;
+        const prev = activeNoteCallbacks?.noteEntry?.text ?? '';
+        const updated = prev ? `${prev} ${text}` : text;
+        if (activeNoteCallbacks?.noteEntry) activeNoteCallbacks.noteEntry.text = updated;
+        if (activeNoteCallbacks?.mesh) updateStickyText(activeNoteCallbacks.mesh, updated);
+        drawVoice(updated);
+      });
+
+      voskRecognizer.on('partialresult', (msg) => {
+        const partial = msg.result?.partial?.trim();
+        if (!partial) return;
+        const base = activeNoteCallbacks?.noteEntry?.text ?? '';
+        const display = base ? `${base} ${partial}` : partial;
+        if (activeNoteCallbacks?.mesh) updateStickyText(activeNoteCallbacks.mesh, display);
+        drawVoice(display);
+      });
+
+      audioProcessor.onaudioprocess = (e) => {
+        if (!voskRecognizer) return;
+        voskRecognizer.acceptWaveform(e.inputBuffer);
+      };
+
+      // Must connect to destination for onaudioprocess to fire
+      audioSource.connect(audioProcessor);
+      audioProcessor.connect(audioContext.destination);
+
+      if (meshSnapshot) updateStickyText(meshSnapshot, 'Listening...');
+      drawVoice('Recording... pull trigger to save');
+      rlog('vosk started', { sampleRate: audioContext.sampleRate });
+    }
+
+    function stopVoskAudio() {
+      try { audioProcessor?.disconnect(); } catch (_) {}
+      try { audioSource?.disconnect(); } catch (_) {}
+      try { audioContext?.close(); } catch (_) {}
+      micStream?.getTracks().forEach(t => t.stop());
+      audioProcessor = null; audioSource = null; audioContext = null; micStream = null;
+    }
+
+    function stopVosk() {
+      rlog('stopVosk called', { hasRecognizer: !!voskRecognizer, hasCallbacks: !!activeNoteCallbacks });
+      if (voskRecognizer) {
+        try { voskRecognizer.free(); } catch (_) {}
+        voskRecognizer = null;
+      }
+      stopVoskAudio();
+
+      const text = activeNoteCallbacks?.noteEntry?.text?.trim() ?? '';
+      rlog('stopVosk saving text', text);
+      if (activeNoteCallbacks) {
+        const { mesh, noteEntry } = activeNoteCallbacks;
+        if (mesh) updateStickyText(mesh, text || '(empty note)');
+        if (noteEntry) noteEntry.text = text;
+        if (text) saveNotes();
+      }
+      activeNoteCallbacks = null;
+      annotating = false; pendingNotePos = null; activeStickyMesh = null;
+      vPanel.visible = false; drawStatus();
     }
 
     function fallbackFloorPoint(dist) {
@@ -306,6 +479,24 @@ export default function ImmersiveScan({ onCapture, onExit }) {
       ringMeshes.forEach(m => scene.remove(m));
       ringMeshes = [];
       createScanRing(scene);
+    }
+
+    // Returns world-space point where the controller ray hits the car bounding box, or null
+    function rayBoxIntersect(poses) {
+      if (!carCenter) return null;
+      const box = new THREE.Box3(
+        new THREE.Vector3(carCenter.x - 1.1, lastFloorY,       carCenter.z - carLength / 2),
+        new THREE.Vector3(carCenter.x + 1.1, lastFloorY + 1.8, carCenter.z + carLength / 2)
+      );
+      for (const p of poses) {
+        const origin = new THREE.Vector3(p.x, p.y, p.z);
+        const quat   = new THREE.Quaternion(p.qx, p.qy, p.qz, p.qw);
+        const dir    = new THREE.Vector3(0, 0, -1).applyQuaternion(quat).normalize();
+        const ray    = new THREE.Ray(origin, dir);
+        const hit    = new THREE.Vector3();
+        if (ray.intersectBox(box, hit)) return { x: hit.x, y: hit.y, z: hit.z };
+      }
+      return null;
     }
 
     // Returns index of the wheel sphere whose center is within 0.25m of the controller ray, or -1
@@ -358,7 +549,7 @@ export default function ImmersiveScan({ onCapture, onExit }) {
       try { hitTestSource = await session.requestHitTestSource({ space: viewerSpace }); }
       catch (e) { console.warn('[ImmersiveScan] no hit-test, using fallback'); }
 
-      const scene = new THREE.Scene();
+      scene = new THREE.Scene();
 
       // Head-locked status panel
       mTex = new THREE.CanvasTexture(mCanvas);
@@ -377,6 +568,38 @@ export default function ImmersiveScan({ onCapture, onExit }) {
       );
       vPanel.visible = false;
       scene.add(vPanel);
+
+      // Exit button (head-locked, top-right corner)
+      const exitCanvas = document.createElement('canvas');
+      exitCanvas.width = 256; exitCanvas.height = 80;
+      const exitCtx = exitCanvas.getContext('2d');
+      exitCtx.fillStyle = '#ef4444';
+      rrect(exitCtx, 0, 0, 256, 80, 16); exitCtx.fill();
+      exitCtx.fillStyle = 'white'; exitCtx.font = 'bold 28px Arial'; exitCtx.textAlign = 'center';
+      exitCtx.fillText('✕  Exit Scan', 128, 50);
+      const exitTex = new THREE.CanvasTexture(exitCanvas);
+      const exitBtn = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.18, 0.056),
+        new THREE.MeshBasicMaterial({ map: exitTex, transparent: true, depthWrite: false })
+      );
+      exitBtn.visible = false;
+      scene.add(exitBtn);
+
+      // Confirm wheel placement button
+      const confirmCanvas = document.createElement('canvas');
+      confirmCanvas.width = 512; confirmCanvas.height = 112;
+      const confirmCtx = confirmCanvas.getContext('2d');
+      confirmCtx.fillStyle = '#22c55e';
+      rrect(confirmCtx, 0, 0, 512, 112, 24); confirmCtx.fill();
+      confirmCtx.fillStyle = 'white'; confirmCtx.font = 'bold 36px Arial'; confirmCtx.textAlign = 'center';
+      confirmCtx.fillText('✓  Complete Wheel Placement', 256, 66);
+      const confirmTex = new THREE.CanvasTexture(confirmCanvas);
+      const confirmBtn = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.42, 0.092),
+        new THREE.MeshBasicMaterial({ map: confirmTex, transparent: true, depthWrite: false })
+      );
+      confirmBtn.visible = false;
+      scene.add(confirmBtn);
 
       // Damage analysis panel
       dTex = new THREE.CanvasTexture(dCanvas);
@@ -450,6 +673,23 @@ export default function ImmersiveScan({ onCapture, onExit }) {
           vPanel.quaternion.copy(quat);
         }
 
+        // Exit button (top-right, always visible)
+        {
+          const right = new THREE.Vector3(1, 0, 0).applyQuaternion(quat);
+          exitBtn.position.set(
+            tx + fwd.x * 0.88 + right.x * 0.22,
+            ty + 0.19 + fwd.y * 0.88,
+            tz + fwd.z * 0.88 + right.z * 0.22
+          );
+          exitBtn.quaternion.copy(quat);
+        }
+
+        // Confirm button — centered below status panel during 'confirm' phase
+        if (confirmBtn.visible) {
+          confirmBtn.position.set(tx + fwd.x * 0.9, ty - 0.20 + fwd.y * 0.9, tz + fwd.z * 0.9);
+          confirmBtn.quaternion.copy(quat);
+        }
+
         // Damage panel (below status panel)
         if (dPanel.visible) {
           const left = new THREE.Vector3(-1, 0, 0).applyQuaternion(quat);
@@ -483,8 +723,8 @@ export default function ImmersiveScan({ onCapture, onExit }) {
           if (hits.length > 0) lastFloorY = hits[0].getPose(refSpace).transform.position.y;
         }
 
-        // Floor cursor — follows ray intersection during setup so user sees landing point
-        if (WHEEL_PHASES.includes(phase)) {
+        // Floor cursor — follows ray intersection during setup/confirm so user sees landing point
+        if (WHEEL_PHASES.includes(phase) || phase === 'confirm') {
           const floorPt = rayFloorIntersect(lastControllerPoses, lastFloorY);
           if (floorPt) {
             cursor.position.set(floorPt.x, lastFloorY + 0.01, floorPt.z);
@@ -496,12 +736,18 @@ export default function ImmersiveScan({ onCapture, onExit }) {
           cursor.visible = false;
         }
 
-        // Grabbed sphere follows ray-floor intersection
-        if (grabbedSphereIdx !== -1) {
+        // Grabbed sphere follows ray-floor intersection (only when not locked)
+        if (grabbedSphereIdx !== -1 && !wheelsLocked) {
           const floorPt = rayFloorIntersect(lastControllerPoses, lastFloorY);
           if (floorPt) {
             wheelSpheres[grabbedSphereIdx].position.set(floorPt.x, lastFloorY + 0.08, floorPt.z);
           }
+        }
+
+        // Hit-test during confirm phase too — update floor Y
+        if (hitTestSource && phase === 'confirm') {
+          const hits = frame.getHitTestResults(hitTestSource);
+          if (hits.length > 0) lastFloorY = hits[0].getPose(refSpace).transform.position.y;
         }
 
         // Scanning logic
@@ -518,6 +764,8 @@ export default function ImmersiveScan({ onCapture, onExit }) {
             captureFrame(video, currentBucket, azDeg);
           }
 
+          if (buckets.filter(Boolean).length >= MIN_BUCKETS_COMPLETE) exitBtn.visible = true;
+
           if (time - lastRingUpdate > 100) { lastRingUpdate = time; updateRing(); }
           if (time - lastPanelDraw > 150) { lastPanelDraw = time; drawStatus(); }
         }
@@ -527,7 +775,7 @@ export default function ImmersiveScan({ onCapture, onExit }) {
 
       // Grab start — if ray is near a placed sphere, grab it instead of placing a new one
       session.addEventListener('selectstart', () => {
-        if (phase === 'complete') return;
+        if (phase === 'complete' || wheelsLocked) return;
         const hitIdx = raySphereHit(lastControllerPoses, wheelSpheres);
         if (hitIdx !== -1) {
           grabbedSphereIdx = hitIdx;
@@ -537,7 +785,41 @@ export default function ImmersiveScan({ onCapture, onExit }) {
 
       // Trigger handler
       session.addEventListener('selectend', () => {
+        console.log('[trigger] selectend phase=', phase, 'annotating=', annotating, 'tooClose=', tooClose, 'controllers=', lastControllerPoses.length);
         if (phase === 'complete') return;
+
+        // Confirm placement button — lock wheels and start scan
+        if (phase === 'confirm') {
+          for (const p of lastControllerPoses) {
+            const origin = new THREE.Vector3(p.x, p.y, p.z);
+            const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(new THREE.Quaternion(p.qx, p.qy, p.qz, p.qw)).normalize();
+            if (new THREE.Raycaster(origin, dir).intersectObject(confirmBtn).length > 0) {
+              wheelsLocked = true;
+              confirmBtn.visible = false;
+              recomputeCarGeometry(scene);
+              phase = 'scanning';
+              drawStatus();
+              return;
+            }
+          }
+          // In confirm phase, taps that miss the button can still move spheres
+          // Fall through to grab logic below
+        }
+
+        // Exit button hit check
+        for (const p of lastControllerPoses) {
+          const origin = new THREE.Vector3(p.x, p.y, p.z);
+          const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(new THREE.Quaternion(p.qx, p.qy, p.qz, p.qw)).normalize();
+          const raycaster = new THREE.Raycaster(origin, dir);
+          if (raycaster.intersectObject(exitBtn).length > 0) {
+            phase = 'complete';
+            fetch('/api/notes', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ scanId, notes: voiceNotes }) }).catch(() => {});
+            onCapture(buckets.filter(Boolean), voiceNotes);
+            session.end().catch(() => {});
+            return;
+          }
+        }
 
         // Release grab — update wheel point and recompute car geometry
         if (grabbedSphereIdx !== -1) {
@@ -576,9 +858,10 @@ export default function ImmersiveScan({ onCapture, onExit }) {
               phase = WHEEL_PHASES[nextIdx];
               drawSetup(nextIdx);
             } else {
-              recomputeCarGeometry(scene);
-              phase = 'scanning';
-              drawStatus();
+              // All 4 wheels placed — go to confirm phase before starting scan
+              phase = 'confirm';
+              drawConfirm();
+              confirmBtn.visible = true;
             }
           }
           return;
@@ -586,40 +869,64 @@ export default function ImmersiveScan({ onCapture, onExit }) {
 
         if (phase === 'scanning') {
           if (annotating) {
-            stopVoice();
-            const text = currentTranscript.trim();
-            if (text) voiceNotes.push({ text, angle: currentBucket * BUCKET_DEG });
-            currentTranscript = '';
-            annotating = false;
-            vPanel.visible = false;
-            drawStatus();
+            stopVosk();
             return;
           }
 
-          if (tooClose) return;
+          if (voskRecognizer) return; // debounce: already recording
 
-          const filled = buckets.filter(Boolean).length;
-          if (filled >= MIN_BUCKETS_COMPLETE) {
-            phase = 'complete';
-            onCapture(buckets.filter(Boolean), voiceNotes);
-            session.end().catch(() => {});
-            return;
+          // 1. Ray → floor; if hit lands inside scan ring → float note at waist height there
+          const floorHit = rayFloorIntersect(lastControllerPoses, lastFloorY);
+          if (floorHit && carCenter) {
+            const dx = floorHit.x - carCenter.x, dz = floorHit.z - carCenter.z;
+            if (Math.sqrt(dx * dx + dz * dz) <= scanRadius + 0.6) {
+              const noteY = lastViewerT ? lastViewerT.y - 0.5 : lastFloorY + 0.6;
+              pendingNotePos = { x: floorHit.x, y: Math.max(noteY, lastFloorY + 0.3), z: floorHit.z };
+            }
           }
+          // 2. Controller ray at 1.5m (works outside ring too)
+          if (!pendingNotePos && lastControllerPoses.length > 0) {
+            const p = lastControllerPoses[0];
+            const dir = new THREE.Vector3(0, 0, -1)
+              .applyQuaternion(new THREE.Quaternion(p.qx, p.qy, p.qz, p.qw)).normalize();
+            pendingNotePos = { x: p.x + dir.x * 1.5, y: p.y + dir.y * 1.5, z: p.z + dir.z * 1.5 };
+          }
+          // 3. Viewer forward fallback
+          if (!pendingNotePos && lastViewerT && lastViewerFwd) {
+            pendingNotePos = { x: lastViewerT.x + lastViewerFwd.x * 1.5, y: lastViewerT.y - 0.2, z: lastViewerT.z + lastViewerFwd.z * 1.5 };
+          }
+
+          if (pendingNotePos && scene) activeStickyMesh = makeStickyNote(pendingNotePos);
+
+          // Capture real azimuth from viewer position for accurate direction label
+          const noteAzDeg = (carCenter && lastViewerT)
+            ? ((Math.atan2(lastViewerT.z - carCenter.z, lastViewerT.x - carCenter.x) * 180 / Math.PI) + 360) % 360
+            : currentBucket * BUCKET_DEG;
+          const noteEntry = {
+            id: String(Date.now()),
+            text: '',
+            angle: noteAzDeg,
+            position3d: pendingNotePos,
+          };
+          voiceNotes.push(noteEntry);
+
+          const meshSnapshot = activeStickyMesh;
+          const noteSnapshot = noteEntry;
 
           annotating = true;
-          currentTranscript = '';
           vPanel.visible = true;
-          drawVoice('Listening...');
-          startVoice();
+          drawVoice('Recording...');
+          console.log('[vosk] opening, pos=', pendingNotePos);
+          startVosk(meshSnapshot, noteSnapshot);
           drawStatus();
         }
       });
 
       session.addEventListener('end', () => {
+        stopVosk();
         stream?.getTracks().forEach(t => t.stop());
         renderer.dispose();
         renderer.domElement.remove();
-        stopVoice();
         onExit();
       });
     }
