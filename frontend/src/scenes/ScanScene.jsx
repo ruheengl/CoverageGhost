@@ -342,9 +342,10 @@ function RegistrationDetailsResult({ reg, onContinue }) {
         </div>
       ))}
       <div style={DIVIDER} />
-      <button className="btn-primary spatial-btn" onClick={onContinue} style={{ width: '100%', borderRadius: 12, padding: '13px' }}>
-        Continue
-      </button>
+      <div style={{ display: 'flex', gap: 12 }}>
+        <button className="btn-secondary spatial-btn" onClick={() => {}} style={{ flex: 1 }}>Edit Details</button>
+        <button className="btn-primary spatial-btn" onClick={onContinue} style={{ flex: 1, borderRadius: 12, padding: '13px' }}>Continue</button>
+      </div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, marginTop: 14 }}>
         <span style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13 }}>Step 3 of 3</span>
       </div>
