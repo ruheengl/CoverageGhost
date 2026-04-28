@@ -348,23 +348,14 @@ function RegistrationDetailsResult({ reg, onContinue }) {
 
 function VerifyPolicyDialog({ onDismiss, onVerify }) {
   return (
-    <div className="fade-up" style={{
-      position: 'fixed', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-      background: 'rgba(0,0,0,0.45)', zIndex: 50,
-    }}>
-      <div style={{
-        ...CARD,
-        maxWidth: 380,
-        textAlign: 'center',
-      }}>
-        <div style={{ color: 'white', fontSize: 19, fontWeight: 700, marginBottom: 8 }}>Verify Policy</div>
-        <div style={{ color: 'rgba(255,255,255,0.50)', fontSize: 14, marginBottom: 24, lineHeight: 1.5 }}>
-          Verify the captured information and check if coverage is active or not.
-        </div>
-        <div style={{ display: 'flex', gap: 12 }}>
-          <button className="btn-secondary spatial-btn" onClick={onDismiss} style={{ flex: 1 }}>Dismiss</button>
-          <button className="btn-primary spatial-btn" onClick={onVerify} style={{ flex: 1 }}>Verify</button>
-        </div>
+    <div className="fade-up" style={{ ...CARD, textAlign: 'center' }}>
+      <div style={{ color: 'white', fontSize: 19, fontWeight: 700, marginBottom: 8 }}>Verify Policy</div>
+      <div style={{ color: 'rgba(255,255,255,0.50)', fontSize: 14, marginBottom: 24, lineHeight: 1.5 }}>
+        Verify the captured information and check if coverage is active or not.
+      </div>
+      <div style={{ display: 'flex', gap: 12 }}>
+        <button className="btn-secondary spatial-btn" onClick={onDismiss} style={{ flex: 1 }}>Dismiss</button>
+        <button className="btn-primary spatial-btn" onClick={onVerify} style={{ flex: 1 }}>Verify</button>
       </div>
     </div>
   );
