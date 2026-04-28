@@ -88,9 +88,6 @@ function UIQTokenScreen({ onVerify }) {
       <button className="btn-primary spatial-btn" onClick={() => onVerify(token)} style={{ borderRadius: 12, width: '100%' }}>
         Verify Token
       </button>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, marginTop: 14 }}>
-        <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13 }}>Step 1 of 6</span>
-      </div>
     </div>
   );
 }
@@ -106,9 +103,6 @@ function DriverDetailsChoice({ onManual, onScan }) {
       <div style={{ display: 'flex', gap: 12 }}>
         <button className="btn-secondary spatial-btn" onClick={onManual} style={{ flex: 1 }}>Enter Manually</button>
         <button className="btn-primary spatial-btn" onClick={onScan} style={{ flex: 1 }}>Scan Document</button>
-      </div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, marginTop: 14 }}>
-        <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13 }}>Step 1 of 6</span>
       </div>
     </div>
   );
@@ -177,6 +171,9 @@ function ScanLicenseScreen({ onCapture, onManual }) {
       }}>
         Enter Manually Instead
       </button>
+      <div style={{ textAlign: 'center', marginTop: 14 }}>
+        <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13 }}>Step 1 of 3</span>
+      </div>
     </div>
   );
 }
@@ -205,6 +202,9 @@ function DriverDetailsResult({ driver, onCapturePhoto, onManual }) {
       <div style={{ display: 'flex', gap: 12 }}>
         <button className="btn-secondary spatial-btn" onClick={onManual} style={{ flex: 1 }}>Edit Details</button>
         <button className="btn-primary spatial-btn" onClick={onCapturePhoto} style={{ flex: 1 }}>Continue</button>
+      </div>
+      <div style={{ textAlign: 'center', marginTop: 14 }}>
+        <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13 }}>Step 1 of 3</span>
       </div>
     </div>
   );
@@ -249,6 +249,9 @@ function CapturePhotoScreen({ onCapture, onBack }) {
       }}>
         Enter Manually Instead
       </button>
+      <div style={{ textAlign: 'center', marginTop: 14 }}>
+        <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13 }}>Step 2 of 3</span>
+      </div>
     </div>
   );
 }
@@ -311,6 +314,9 @@ function ScanVehicleRegScreen({ onCapture, onManual }) {
       }}>
         Enter Manually Instead
       </button>
+      <div style={{ textAlign: 'center', marginTop: 14 }}>
+        <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13 }}>Step 3 of 3</span>
+      </div>
     </div>
   );
 }
@@ -340,7 +346,7 @@ function RegistrationDetailsResult({ reg, onContinue }) {
         Continue
       </button>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, marginTop: 14 }}>
-        <span style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13 }}>Step 2 of 3</span>
+        <span style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13 }}>Step 3 of 3</span>
       </div>
     </div>
   );
@@ -627,7 +633,7 @@ export default function ScanScene({ claim, onComplete }) {
           <DriverDetailsResult driver={driver} onCapturePhoto={() => setStep('photo')} onManual={() => setStep('driver')} />
         )}
         {step === 'photo' && (
-          <CapturePhotoScreen onCapture={() => setStep('vehicle-reg')} onBack={() => setStep('driver')} />
+          <CapturePhotoScreen onCapture={() => setStep('vehicle-reg')} onBack={() => setStep('vehicle-reg')} />
         )}
         {step === 'vehicle-reg' && (
           <ScanVehicleRegScreen onCapture={(data) => { if (data) setReg(data); setStep('reg-details'); }} onManual={() => setStep('reg-details')} />
