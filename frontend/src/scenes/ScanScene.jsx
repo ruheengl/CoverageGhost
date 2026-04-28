@@ -5,7 +5,9 @@ import ClaimHUD from '../components/ClaimHUD';
 import CameraCapture from '../components/CameraCapture';
 import ImmersiveScan from '../components/ImmersiveScan';
 import { enableXRLayer } from '../lib/enableXRLayer';
-import { analyzeDamage, checkCoverage, imageToBase64 } from '../lib/api';
+import { analyzeDamage, checkCoverage, imageToBase64, ocrDocument } from '../lib/api';
+
+const isVisionPro = /visionOS/.test(navigator.userAgent);
 
 const inWebSpatial = /WebSpatial\//.test(navigator.userAgent);
 const SPLAT_URL = '/api/splat';
@@ -113,25 +115,66 @@ function DriverDetailsChoice({ onManual, onScan }) {
 }
 
 function ScanLicenseScreen({ onCapture, onManual }) {
+  const videoRef = useRef(null);
+  const streamRef = useRef(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (isVisionPro) return;
+    navigator.mediaDevices?.getUserMedia({ video: { facingMode: 'environment' } })
+      .then(stream => {
+        streamRef.current = stream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          videoRef.current.play();
+        }
+      })
+      .catch(() => {});
+    return () => streamRef.current?.getTracks().forEach(t => t.stop());
+  }, []);
+
+  function stopStream() {
+    streamRef.current?.getTracks().forEach(t => t.stop());
+  }
+
+  async function handleTrigger() {
+    if (isVisionPro) { onCapture(null); return; }
+    if (!videoRef.current || busy) return;
+    setBusy(true);
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = videoRef.current.videoWidth;
+      canvas.height = videoRef.current.videoHeight;
+      canvas.getContext('2d').drawImage(videoRef.current, 0, 0);
+      const b64 = canvas.toDataURL('image/jpeg', 0.85).split(',')[1];
+      stopStream();
+      const data = await ocrDocument(b64, 'drivers_license');
+      onCapture(data);
+    } catch {
+      stopStream();
+      onCapture(null);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
-    <div className="fade-up" style={{ width: 480 }}>
-      <CameraCapture
-        title="Scan Driver's License"
-        subtitle="Point the camera at the license or upload a photo."
-        captureLabel="Capture License"
-        busyLabel="Reading license..."
-        onCapture={async (file) => { await Promise.resolve(); onCapture(file); }}
-        style={{ width: '100%', boxSizing: 'border-box', background: 'rgba(30,30,40,0.70)' }}
-      />
-      <button
-        className="spatial-btn"
-        onClick={onManual}
-        style={{
-          marginTop: 10, width: '100%', padding: '11px',
-          background: 'rgba(30,30,40,0.88)', border: '1px solid rgba(255,255,255,0.12)',
-          borderRadius: 12, color: 'rgba(255,255,255,0.55)', fontSize: 14, cursor: 'pointer',
-        }}
-      >
+    <div className="fade-up" style={CARD}>
+      <div style={{ color: 'white', fontSize: 19, fontWeight: 700, marginBottom: 4 }}>Scan Driver's License</div>
+      <div style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13, marginBottom: 16 }}>
+        Point the camera at the license, then pull the trigger.
+      </div>
+      <div style={DIVIDER} />
+      <video ref={videoRef} autoPlay playsInline muted style={{ display: 'none' }} />
+      <button className="btn-primary spatial-btn" onClick={handleTrigger}
+        style={{ borderRadius: 12, width: '100%', marginBottom: 10 }} disabled={busy}>
+        {busy ? 'Reading…' : isVisionPro ? 'Continue' : 'Capture'}
+      </button>
+      <button className="spatial-btn" onClick={() => { stopStream(); onManual(); }} style={{
+        marginTop: 10, width: '100%', padding: '11px',
+        background: 'rgba(30,30,40,0.88)', border: '1px solid rgba(255,255,255,0.12)',
+        borderRadius: 12, color: 'rgba(255,255,255,0.55)', fontSize: 14, cursor: 'pointer',
+      }}>
         Enter Manually Instead
       </button>
     </div>
@@ -161,58 +204,111 @@ function DriverDetailsResult({ driver, onCapturePhoto, onManual }) {
       </div>
       <div style={{ display: 'flex', gap: 12 }}>
         <button className="btn-secondary spatial-btn" onClick={onManual} style={{ flex: 1 }}>Edit Details</button>
-        <button className="btn-primary spatial-btn" onClick={onCapturePhoto} style={{ flex: 1 }}>Capture Photo</button>
+        <button className="btn-primary spatial-btn" onClick={onCapturePhoto} style={{ flex: 1 }}>Continue</button>
       </div>
     </div>
   );
 }
 
 function CapturePhotoScreen({ onCapture, onBack }) {
+  const videoRef = useRef(null);
+  const streamRef = useRef(null);
+
+  useEffect(() => {
+    if (isVisionPro) return;
+    navigator.mediaDevices?.getUserMedia({ video: { facingMode: 'user' } })
+      .then(stream => {
+        streamRef.current = stream;
+        if (videoRef.current) { videoRef.current.srcObject = stream; videoRef.current.play(); }
+      })
+      .catch(() => {});
+    return () => streamRef.current?.getTracks().forEach(t => t.stop());
+  }, []);
+
+  function handleTrigger() {
+    streamRef.current?.getTracks().forEach(t => t.stop());
+    onCapture();
+  }
+
   return (
-    <div className="fade-up" style={{ width: 480 }}>
-      <CameraCapture
-        title="Driver Photo"
-        subtitle="Take a photo of the driver for identity verification."
-        captureLabel="Capture Photo"
-        busyLabel="Processing photo..."
-        onCapture={async (file) => { await Promise.resolve(); onCapture(file); }}
-        style={{ width: '100%', boxSizing: 'border-box', background: 'rgba(30,30,40,0.70)' }}
-      />
-      <button
-        className="spatial-btn"
-        onClick={onBack}
-        style={{
-          marginTop: 10, width: '100%', padding: '11px',
-          background: 'rgba(30,30,40,0.88)', border: '1px solid rgba(255,255,255,0.12)',
-          borderRadius: 12, color: 'rgba(255,255,255,0.55)', fontSize: 14, cursor: 'pointer',
-        }}
-      >
-        Back
+    <div className="fade-up" style={CARD}>
+      <div style={{ color: 'white', fontSize: 19, fontWeight: 700, marginBottom: 4 }}>Driver Photo</div>
+      <div style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13, marginBottom: 16 }}>
+        Face the camera, then pull the trigger.
+      </div>
+      <div style={DIVIDER} />
+      <video ref={videoRef} autoPlay playsInline muted style={{ display: 'none' }} />
+      <button className="btn-primary spatial-btn" onClick={handleTrigger}
+        style={{ borderRadius: 12, width: '100%', marginBottom: 10 }}>
+        {isVisionPro ? 'Continue' : 'Capture'}
+      </button>
+      <button className="spatial-btn" onClick={() => { streamRef.current?.getTracks().forEach(t => t.stop()); onBack(); }} style={{
+        width: '100%', padding: '11px',
+        background: 'rgba(30,30,40,0.88)', border: '1px solid rgba(255,255,255,0.12)',
+        borderRadius: 12, color: 'rgba(255,255,255,0.55)', fontSize: 14, cursor: 'pointer',
+      }}>
+        Enter Manually Instead
       </button>
     </div>
   );
 }
 
 function ScanVehicleRegScreen({ onCapture, onManual }) {
+  const videoRef = useRef(null);
+  const streamRef = useRef(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (isVisionPro) return;
+    navigator.mediaDevices?.getUserMedia({ video: { facingMode: 'environment' } })
+      .then(stream => {
+        streamRef.current = stream;
+        if (videoRef.current) { videoRef.current.srcObject = stream; videoRef.current.play(); }
+      })
+      .catch(() => {});
+    return () => streamRef.current?.getTracks().forEach(t => t.stop());
+  }, []);
+
+  function stopStream() { streamRef.current?.getTracks().forEach(t => t.stop()); }
+
+  async function handleTrigger() {
+    if (isVisionPro) { onCapture(null); return; }
+    if (!videoRef.current || busy) return;
+    setBusy(true);
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = videoRef.current.videoWidth;
+      canvas.height = videoRef.current.videoHeight;
+      canvas.getContext('2d').drawImage(videoRef.current, 0, 0);
+      const b64 = canvas.toDataURL('image/jpeg', 0.85).split(',')[1];
+      stopStream();
+      const data = await ocrDocument(b64, 'vehicle_registration');
+      onCapture(data);
+    } catch {
+      stopStream();
+      onCapture(null);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
-    <div className="fade-up" style={{ width: 480 }}>
-      <CameraCapture
-        title="Scan Vehicle Registration"
-        subtitle="Point the camera at the vehicle registration card or upload a photo."
-        captureLabel="Capture Registration"
-        busyLabel="Reading registration..."
-        onCapture={async (file) => { await Promise.resolve(); onCapture(file); }}
-        style={{ width: '100%', boxSizing: 'border-box', background: 'rgba(30,30,40,0.70)' }}
-      />
-      <button
-        className="spatial-btn"
-        onClick={onManual}
-        style={{
-          marginTop: 10, width: '100%', padding: '11px',
-          background: 'rgba(30,30,40,0.88)', border: '1px solid rgba(255,255,255,0.12)',
-          borderRadius: 12, color: 'rgba(255,255,255,0.55)', fontSize: 14, cursor: 'pointer',
-        }}
-      >
+    <div className="fade-up" style={CARD}>
+      <div style={{ color: 'white', fontSize: 19, fontWeight: 700, marginBottom: 4 }}>Scan Vehicle Registration</div>
+      <div style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13, marginBottom: 16 }}>
+        Point the camera at the registration card, then pull the trigger.
+      </div>
+      <div style={DIVIDER} />
+      <video ref={videoRef} autoPlay playsInline muted style={{ display: 'none' }} />
+      <button className="btn-primary spatial-btn" onClick={handleTrigger}
+        style={{ borderRadius: 12, width: '100%', marginBottom: 10 }} disabled={busy}>
+        {busy ? 'Reading…' : isVisionPro ? 'Continue' : 'Capture'}
+      </button>
+      <button className="spatial-btn" onClick={() => { stopStream(); onManual(); }} style={{
+        width: '100%', padding: '11px',
+        background: 'rgba(30,30,40,0.88)', border: '1px solid rgba(255,255,255,0.12)',
+        borderRadius: 12, color: 'rgba(255,255,255,0.55)', fontSize: 14, cursor: 'pointer',
+      }}>
         Enter Manually Instead
       </button>
     </div>
@@ -508,6 +604,7 @@ function DamageScanScreen({ claim, onComplete }) {
 export default function ScanScene({ claim, onComplete }) {
   const [step, setStep] = useState('task');
   const [driver, setDriver] = useState({});
+  const [reg, setReg] = useState({});
   const [policyData] = useState({
     claimant: claim?.adjuster || 'James Chen',
     policy_number: 'ALLST-2024-TX-00925',
@@ -530,7 +627,10 @@ export default function ScanScene({ claim, onComplete }) {
           <DriverDetailsChoice onManual={() => setStep('driver')} onScan={() => setStep('license')} />
         )}
         {step === 'license' && (
-          <ScanLicenseScreen onCapture={() => setStep('driver')} onManual={() => setStep('driver')} />
+          <ScanLicenseScreen
+            onCapture={(data) => { if (data) setDriver(data); setStep('driver'); }}
+            onManual={() => setStep('driver')}
+          />
         )}
         {step === 'driver' && (
           <DriverDetailsResult driver={driver} onCapturePhoto={() => setStep('photo')} onManual={() => setStep('driver')} />
@@ -539,10 +639,10 @@ export default function ScanScene({ claim, onComplete }) {
           <CapturePhotoScreen onCapture={() => setStep('vehicle-reg')} onBack={() => setStep('driver')} />
         )}
         {step === 'vehicle-reg' && (
-          <ScanVehicleRegScreen onCapture={() => setStep('verify-claim')} onManual={() => setStep('reg-details')} />
+          <ScanVehicleRegScreen onCapture={(data) => { if (data) setReg(data); setStep('reg-details'); }} onManual={() => setStep('reg-details')} />
         )}
         {step === 'reg-details' && (
-          <RegistrationDetailsResult reg={{}} onContinue={() => setStep('verify-claim')} />
+          <RegistrationDetailsResult reg={reg} onContinue={() => setStep('verify-claim')} />
         )}
         {step === 'verify-claim' && (
           <VerifyPolicyDialog onDismiss={() => setStep('vehicle-reg')} onVerify={() => setStep('policy-active')} />
