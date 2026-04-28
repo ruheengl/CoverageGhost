@@ -526,7 +526,7 @@ function DamageScanScreen({ claim, onComplete }) {
         }}>
           {xrSupported && !inWebSpatial && (
             <button className="spatial-btn" onClick={() => setImmersiveActive(true)} style={{
-              padding: '14px 36px', background: '#0d9488', border: 'none',
+              padding: '14px 36px', background: '#1a3cef', border: 'none',
               borderRadius: 40, color: 'white', fontSize: 16, fontWeight: 700, cursor: 'pointer',
             }}>
               Enter Immersive Scan
@@ -584,11 +584,11 @@ function DamageScanScreen({ claim, onComplete }) {
               className="spatial-btn"
               onClick={() => onComplete(damageData, coverageDecisions, covMap, SPLAT_URL, voiceNotes)}
               style={{
-                width: '100%', padding: '13px', background: '#0d9488', border: 'none',
+                width: '100%', padding: '13px', background: '#1a3cef', border: 'none',
                 borderRadius: 12, color: 'white', fontSize: 15, fontWeight: 700, cursor: 'pointer',
               }}
             >
-              Continue to Annotation
+              View 3D Reconstruction
             </button>
           </div>
         </div>

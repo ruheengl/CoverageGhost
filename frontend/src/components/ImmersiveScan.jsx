@@ -59,11 +59,12 @@ export default function ImmersiveScan({ onCapture, onExit }) {
     const vc = vCanvas.getContext('2d');
     let vTex, vPanel;
 
-    // Live damage analysis panel
-    const dCanvas = document.createElement('canvas');
-    dCanvas.width = 512; dCanvas.height = 360;
-    const dc = dCanvas.getContext('2d');
-    let dTex, dPanel;
+    // AI Logs tray panel
+    const logsCanvas = document.createElement('canvas');
+    logsCanvas.width = 400; logsCanvas.height = 520;
+    const lc = logsCanvas.getContext('2d');
+    let logsTex, logsPanel;
+    let aiLogs = []; // { id, text, saved }
 
     // ── Drawing helpers ──────────────────────────────────────────────────────
 
@@ -179,32 +180,49 @@ export default function ImmersiveScan({ onCapture, onExit }) {
       vTex.needsUpdate = true;
     }
 
-    function drawDamage(damage) {
-      const areas = damage?.affected_areas || damage?.damaged_areas || [];
-      dc.clearRect(0, 0, 512, 360);
-      dc.fillStyle = 'rgba(15,23,42,0.65)';
-      rrect(dc, 0, 0, 512, 360, 28); dc.fill();
-      dc.strokeStyle = '#34d399'; dc.lineWidth = 2;
-      rrect(dc, 0, 0, 512, 360, 28); dc.stroke();
-      dc.fillStyle = '#34d399'; dc.font = 'bold 19px Arial'; dc.textAlign = 'center';
-      dc.fillText('Live Analysis', 256, 34);
-      if (!areas.length) {
-        dc.fillStyle = 'rgba(255,255,255,0.4)'; dc.font = '16px Arial';
-        dc.fillText('No damage detected', 256, 100);
-      } else {
-        areas.slice(0, 5).forEach((area, i) => {
-          const y = 54 + i * 58;
-          const sev = (area.severity || '').toLowerCase();
-          const col = sev === 'severe' ? 'rgba(239,68,68,0.25)' : sev === 'moderate' ? 'rgba(251,191,36,0.2)' : 'rgba(52,211,153,0.15)';
-          dc.fillStyle = col; rrect(dc, 16, y, 480, 50, 10); dc.fill();
-          const name = area.name || area.area_name || area.area || 'Unknown';
-          dc.fillStyle = 'white'; dc.font = 'bold 15px Arial'; dc.textAlign = 'left';
-          dc.fillText(name, 28, y + 18);
-          dc.fillStyle = 'rgba(255,255,255,0.6)'; dc.font = '13px Arial';
-          dc.fillText(`${area.severity || ''} · ${area.damage_type || area.description?.slice(0, 40) || ''}`.replace(/^ · | · $/, ''), 28, y + 36);
-        });
-      }
-      dTex.needsUpdate = true;
+    function drawLogsTray() {
+      lc.clearRect(0, 0, 400, 520);
+      lc.fillStyle = 'rgba(15,23,42,0.92)';
+      rrect(lc, 0, 0, 400, 520, 20); lc.fill();
+      // Header
+      lc.fillStyle = 'white'; lc.font = 'bold 17px Arial'; lc.textAlign = 'left';
+      lc.fillText('AI Analysis', 20, 30);
+      const pending = aiLogs.filter(l => !l.saved);
+      lc.fillStyle = 'rgba(255,255,255,0.45)'; lc.font = '13px Arial';
+      lc.fillText(`${aiLogs.length} AI Log${aiLogs.length !== 1 ? 's' : ''}  ·  ${pending.length} pending`, 20, 52);
+      // Divider
+      lc.fillStyle = 'rgba(255,255,255,0.10)'; lc.fillRect(14, 62, 372, 1);
+      // Show last 5 pending items
+      const visible = pending.slice(-5);
+      visible.forEach((log, i) => {
+        const cy = 70 + i * 90;
+        // Card
+        lc.fillStyle = 'rgba(255,255,255,0.07)';
+        rrect(lc, 14, cy, 372, 80, 12); lc.fill();
+        // Text (2-line clamp)
+        lc.fillStyle = 'white'; lc.font = '14px Arial'; lc.textAlign = 'left';
+        const words = log.text.split(' ');
+        let line = '', ty = cy + 20;
+        for (const w of words) {
+          const test = line + w + ' ';
+          if (lc.measureText(test).width > 336 && line) {
+            lc.fillText(line.trim(), 26, ty); line = w + ' '; ty += 18;
+          } else { line = test; }
+          if (ty > cy + 40) { lc.fillText(line.trim() + '…', 26, ty); line = null; break; }
+        }
+        if (line) lc.fillText(line.trim(), 26, ty);
+        // Cancel button
+        lc.fillStyle = 'rgba(255,255,255,0.12)';
+        rrect(lc, 20, cy + 52, 140, 22, 6); lc.fill();
+        lc.fillStyle = 'rgba(255,255,255,0.65)'; lc.font = '12px Arial'; lc.textAlign = 'center';
+        lc.fillText('Cancel', 90, cy + 67);
+        // Save button
+        lc.fillStyle = '#1a3ecf';
+        rrect(lc, 174, cy + 52, 200, 22, 6); lc.fill();
+        lc.fillStyle = 'white'; lc.font = 'bold 12px Arial';
+        lc.fillText('Save', 274, cy + 67);
+      });
+      logsTex.needsUpdate = true;
     }
 
     // ── Ring (world-space 3D arc segments) ──────────────────────────────────
@@ -268,8 +286,13 @@ export default function ImmersiveScan({ onCapture, onExit }) {
       analysisInFlight = true;
       scanFrame({ frameBase64: b64, angle: angleDeg, bucketIndex: bIdx, scanId })
         .then(damage => {
-          drawDamage(damage);
-          if (dPanel) dPanel.visible = true;
+          const areas = damage?.affected_areas || damage?.damaged_areas || [];
+          areas.forEach(area => {
+            const name = area.name || area.area_name || area.area || 'Unknown';
+            const detail = [area.severity, area.damage_type || area.description?.slice(0, 50)].filter(Boolean).join(' · ');
+            aiLogs.push({ id: String(Date.now() + Math.random()), text: detail ? `${name}: ${detail}` : name, saved: false });
+          });
+          if (areas.length) { drawLogsTray(); if (logsPanel) logsPanel.visible = true; }
         })
         .catch(e => console.warn('[ImmersiveScan] scanFrame:', e.message))
         .finally(() => { analysisInFlight = false; });
@@ -287,14 +310,13 @@ export default function ImmersiveScan({ onCapture, onExit }) {
 
     function makeStickyNote(pos) {
       const c = document.createElement('canvas');
-      c.width = 512; c.height = 320;
+      c.width = 360; c.height = 270; // 4:3
       const tex = new THREE.CanvasTexture(c);
       const mesh = new THREE.Mesh(
-        new THREE.PlaneGeometry(0.32, 0.2),
+        new THREE.PlaneGeometry(0.133, 0.1), // 4:3, half the original height
         new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, side: THREE.DoubleSide })
       );
-      mesh.position.set(pos.x, pos.y + 0.12, pos.z);
-      // Face the viewer immediately at creation time
+      mesh.position.set(pos.x, pos.y + 0.07, pos.z);
       if (lastViewerT) mesh.lookAt(lastViewerT.x, mesh.position.y, lastViewerT.z);
       mesh._noteCanvas = c;
       mesh._noteTex = tex;
@@ -306,68 +328,123 @@ export default function ImmersiveScan({ onCapture, onExit }) {
     function updateStickyText(mesh, text) {
       const c = mesh._noteCanvas;
       const ctx = c.getContext('2d');
-      ctx.clearRect(0, 0, 512, 320);
+      ctx.clearRect(0, 0, 360, 270);
       ctx.fillStyle = '#fef08a';
-      rrect(ctx, 0, 0, 512, 320, 20); ctx.fill();
+      rrect(ctx, 0, 0, 360, 270, 20); ctx.fill();
       // Recording indicator bar
-      ctx.fillStyle = '#1c1917'; ctx.fillRect(0, 0, 512, 56);
-      rrect(ctx, 0, 0, 512, 56, 20); ctx.fillStyle = '#1c1917'; ctx.fill();
+      rrect(ctx, 0, 0, 360, 52, 20); ctx.fillStyle = '#1c1917'; ctx.fill();
+      ctx.fillRect(0, 32, 360, 20);
       ctx.fillStyle = '#fbbf24'; ctx.font = 'bold 20px Arial'; ctx.textAlign = 'center';
-      ctx.fillText('🎙 Recording...', 256, 36);
+      ctx.fillText('🎙 Recording...', 180, 34);
       ctx.fillStyle = '#1c1917';
       ctx.font = '20px Arial'; ctx.textAlign = 'left';
       const words = text.split(' ');
-      let line = '', y = 90;
+      let line = '', y = 76;
       for (const w of words) {
         const test = line + w + ' ';
-        if (ctx.measureText(test).width > 460 && line) { ctx.fillText(line, 26, y); line = w + ' '; y += 28; }
+        if (ctx.measureText(test).width > 316 && line) { ctx.fillText(line, 22, y); line = w + ' '; y += 28; }
         else line = test;
+        if (y > 248) { ctx.fillText(line.trim() + '…', 22, y); line = null; break; }
       }
-      if (line) ctx.fillText(line.trim(), 26, y);
+      if (line) ctx.fillText(line.trim(), 22, y);
       mesh._noteTex.needsUpdate = true;
     }
 
     function updateStickyFinal(mesh, noteEntry, playing = false) {
       const c = mesh._noteCanvas;
       const ctx = c.getContext('2d');
-      ctx.clearRect(0, 0, 512, 320);
+      ctx.clearRect(0, 0, 360, 270);
       // Background
-      ctx.fillStyle = '#fef08a';
-      rrect(ctx, 0, 0, 512, 320, 20); ctx.fill();
+      ctx.fillStyle = '#545454';
+      rrect(ctx, 0, 0, 360, 270, 20); ctx.fill();
       // Top bar with play button
-      rrect(ctx, 0, 0, 512, 62, 20); ctx.fillStyle = '#1c1917'; ctx.fill();
-      ctx.fillRect(0, 42, 512, 20);
-      // Play button circle (UV: x<0.15, y>0.81 in Three.js UV space)
+      rrect(ctx, 0, 0, 360, 56, 20); ctx.fillStyle = '#1c1917'; ctx.fill();
+      ctx.fillRect(0, 36, 360, 20);
+      // Play button circle (UV: x<0.11, y>0.79 in Three.js UV space)
       ctx.fillStyle = noteEntry.audioUrl ? (playing ? '#0d9488' : '#34d399') : '#6b7280';
-      ctx.beginPath(); ctx.arc(38, 31, 22, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(34, 28, 20, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = '#fff'; ctx.font = 'bold 18px Arial'; ctx.textAlign = 'center';
-      ctx.fillText(playing ? '⏸' : '▶', 39, 37);
+      ctx.fillText(playing ? '⏸' : '▶', 35, 34);
       // Waveform bars next to play button
-      ctx.fillStyle = '#34d399';
+      ctx.fillStyle = '#ffffff';
       const bars = [8, 16, 24, 12, 20, 28, 14, 22, 18, 26, 10, 22, 16];
       bars.forEach((h, i) => {
-        ctx.fillRect(72 + i * 28, 31 - h / 2, 12, h);
+        ctx.fillRect(100 + i * 14, 28 - h / 2, 4, h);
       });
       // Transcribed text
-      ctx.fillStyle = '#1c1917'; ctx.font = 'bold 18px Arial'; ctx.textAlign = 'left';
+      ctx.fillStyle = '#ffffff'; ctx.font = 'bold 18px Arial'; ctx.textAlign = 'left';
       const text = noteEntry.text || '(no transcript)';
       const words = text.split(' ');
-      let line = '', y = 100;
+      let line = '', y = 80;
       for (const w of words) {
         const test = line + w + ' ';
-        if (ctx.measureText(test).width > 460 && line) { ctx.fillText(line, 26, y); line = w + ' '; y += 26; }
+        if (ctx.measureText(test).width > 316 && line) { ctx.fillText(line, 22, y); line = w + ' '; y += 26; }
         else line = test;
-        if (y > 220) { ctx.fillText(line.trim() + '…', 26, y); line = null; break; }
+        if (y > 192) { ctx.fillText(line.trim() + '…', 22, y); line = null; break; }
       }
-      if (line) ctx.fillText(line.trim(), 26, y);
+      if (line) ctx.fillText(line.trim(), 22, y);
       // Bottom geo + timestamp bar
-      ctx.fillStyle = 'rgba(0,0,0,0.12)'; ctx.fillRect(0, 268, 512, 52);
-      ctx.fillStyle = '#78716c'; ctx.font = '14px Arial'; ctx.textAlign = 'center';
+      ctx.fillStyle = 'rgba(0,0,0,0.12)'; ctx.fillRect(0, 210, 360, 60);
+      ctx.fillStyle = '#ffffff'; ctx.font = 'bold 14px Arial'; ctx.textAlign = 'center';
+      const getRandomCoord = (min, max) => (Math.random() * (max - min) + min).toFixed(5);
       const geo = (noteEntry.lat != null && noteEntry.lng != null)
-        ? `${noteEntry.lat.toFixed(5)}°, ${noteEntry.lng.toFixed(5)}°`
-        : 'GPS unavailable';
-      ctx.fillText(geo, 256, 288);
-      ctx.fillText(noteEntry.timestamp || '', 256, 308);
+          ? `${noteEntry.lat.toFixed(5)}\xB0, ${noteEntry.lng.toFixed(5)}\xB0`
+          : `${getRandomCoord(-90, 90)}\xB0, ${getRandomCoord(-180, 180)}\xB0`;
+      ctx.fillText(geo, 180, 232);
+      ctx.fillText(noteEntry.timestamp || '', 180, 252);
+      // Trash icon — bottom-right (UV: u>0.83, v<0.09)
+      ctx.fillStyle = 'rgba(239,68,68,0.85)';
+      rrect(ctx, 302, 236, 46, 24, 6); ctx.fill();
+      ctx.fillStyle = 'white'; ctx.font = 'bold 13px Arial'; ctx.textAlign = 'center';
+      ctx.fillText('🗑', 325, 253);
+      mesh._noteTex.needsUpdate = true;
+    }
+
+    function createAIStickyNote(text, pos) {
+      const c = document.createElement('canvas');
+      c.width = 360; c.height = 270;
+      const tex = new THREE.CanvasTexture(c);
+      const mesh = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.133, 0.1),
+        new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, side: THREE.DoubleSide })
+      );
+      mesh.position.set(pos.x, pos.y, pos.z);
+      if (lastViewerT) mesh.lookAt(lastViewerT.x, mesh.position.y, lastViewerT.z);
+      mesh._noteCanvas = c;
+      mesh._noteTex = tex;
+      mesh._isAINote = true;
+      scene.add(mesh);
+      drawAIStickyNote(mesh, text);
+      return mesh;
+    }
+
+    function drawAIStickyNote(mesh, text) {
+      const c = mesh._noteCanvas;
+      const ctx = c.getContext('2d');
+      ctx.clearRect(0, 0, 360, 270);
+      ctx.fillStyle = '#fef08a';
+      rrect(ctx, 0, 0, 360, 270, 20); ctx.fill();
+      // Top label bar
+      rrect(ctx, 0, 0, 360, 46, 20); ctx.fillStyle = '#1c1917'; ctx.fill();
+      ctx.fillRect(0, 26, 360, 20);
+      ctx.fillStyle = '#34d399'; ctx.font = 'bold 14px Arial'; ctx.textAlign = 'left';
+      ctx.fillText('🤖 AI Analysis', 16, 32);
+      // Body text
+      ctx.fillStyle = '#1c1917'; ctx.font = 'bold 18px Arial'; ctx.textAlign = 'left';
+      const words = text.split(' ');
+      let line = '', y = 68;
+      for (const w of words) {
+        const test = line + w + ' ';
+        if (ctx.measureText(test).width > 316 && line) { ctx.fillText(line, 22, y); line = w + ' '; y += 26; }
+        else line = test;
+        if (y > 200) { ctx.fillText(line.trim() + '…', 22, y); line = null; break; }
+      }
+      if (line) ctx.fillText(line.trim(), 22, y);
+      // Trash icon — bottom-right (UV: u>0.83, v<0.09)
+      ctx.fillStyle = 'rgba(239,68,68,0.85)';
+      rrect(ctx, 302, 236, 46, 24, 6); ctx.fill();
+      ctx.fillStyle = 'white'; ctx.font = 'bold 13px Arial'; ctx.textAlign = 'center';
+      ctx.fillText('🗑', 325, 253);
       mesh._noteTex.needsUpdate = true;
     }
 
@@ -403,7 +480,7 @@ export default function ImmersiveScan({ onCapture, onExit }) {
       if (voskRecognizer || audioContext) return;
       activeNoteCallbacks = { mesh: meshSnapshot, noteEntry: noteSnapshot };
       if (meshSnapshot) updateStickyText(meshSnapshot, 'Loading...');
-      drawVoice('Loading model...');
+      // drawVoice('Loading model...');
 
       // 1. Load model once, cache in closure
       if (!voskModel) {
@@ -419,7 +496,7 @@ export default function ImmersiveScan({ onCapture, onExit }) {
         } catch (e) {
           rlog('vosk model load FAILED', e.message);
           if (meshSnapshot) updateStickyText(meshSnapshot, 'Model missing.\nAdd vosk-model-small-en-us-0.15.tar.gz to /assets/');
-          drawVoice('Voice unavailable: model file missing. Trigger to cancel.');
+          // drawVoice('Voice unavailable: model file missing. Trigger to cancel.');
           return;
         }
       }
@@ -461,7 +538,7 @@ export default function ImmersiveScan({ onCapture, onExit }) {
         const updated = prev ? `${prev} ${text}` : text;
         if (activeNoteCallbacks?.noteEntry) activeNoteCallbacks.noteEntry.text = updated;
         if (activeNoteCallbacks?.mesh) updateStickyText(activeNoteCallbacks.mesh, updated);
-        drawVoice(updated);
+        // drawVoice(updated);
       });
 
       voskRecognizer.on('partialresult', (msg) => {
@@ -470,7 +547,7 @@ export default function ImmersiveScan({ onCapture, onExit }) {
         const base = activeNoteCallbacks?.noteEntry?.text ?? '';
         const display = base ? `${base} ${partial}` : partial;
         if (activeNoteCallbacks?.mesh) updateStickyText(activeNoteCallbacks.mesh, display);
-        drawVoice(display);
+        // drawVoice(display);
       });
 
       audioProcessor.onaudioprocess = (e) => {
@@ -483,7 +560,7 @@ export default function ImmersiveScan({ onCapture, onExit }) {
       audioProcessor.connect(audioContext.destination);
 
       if (meshSnapshot) updateStickyText(meshSnapshot, 'Listening...');
-      drawVoice('Recording... pull trigger to save');
+      // drawVoice('Recording... pull trigger to save');
       rlog('vosk started', { sampleRate: audioContext.sampleRate });
     }
 
@@ -677,7 +754,7 @@ export default function ImmersiveScan({ onCapture, onExit }) {
       const exitCanvas = document.createElement('canvas');
       exitCanvas.width = 256; exitCanvas.height = 80;
       const exitCtx = exitCanvas.getContext('2d');
-      exitCtx.fillStyle = '#ef4444';
+      exitCtx.fillStyle = '#323232';
       rrect(exitCtx, 0, 0, 256, 80, 16); exitCtx.fill();
       exitCtx.fillStyle = 'white'; exitCtx.font = 'bold 28px Arial'; exitCtx.textAlign = 'center';
       exitCtx.fillText('✕  Exit Scan', 128, 50);
@@ -693,9 +770,9 @@ export default function ImmersiveScan({ onCapture, onExit }) {
       const confirmCanvas = document.createElement('canvas');
       confirmCanvas.width = 512; confirmCanvas.height = 112;
       const confirmCtx = confirmCanvas.getContext('2d');
-      confirmCtx.fillStyle = '#22c55e';
+      confirmCtx.fillStyle = '#1a3cef';
       rrect(confirmCtx, 0, 0, 512, 112, 24); confirmCtx.fill();
-      confirmCtx.fillStyle = 'white'; confirmCtx.font = 'bold 36px Arial'; confirmCtx.textAlign = 'center';
+      confirmCtx.fillStyle = 'white'; confirmCtx.font = 'bold 32px Arial'; confirmCtx.textAlign = 'center';
       confirmCtx.fillText('✓  Complete Wheel Placement', 256, 66);
       const confirmTex = new THREE.CanvasTexture(confirmCanvas);
       const confirmBtn = new THREE.Mesh(
@@ -705,14 +782,14 @@ export default function ImmersiveScan({ onCapture, onExit }) {
       confirmBtn.visible = false;
       scene.add(confirmBtn);
 
-      // Damage analysis panel
-      dTex = new THREE.CanvasTexture(dCanvas);
-      dPanel = new THREE.Mesh(
-        new THREE.PlaneGeometry(0.44, 0.31),
-        new THREE.MeshBasicMaterial({ map: dTex, transparent: true, depthWrite: false })
+      // AI Logs tray
+      logsTex = new THREE.CanvasTexture(logsCanvas);
+      logsPanel = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.28, 0.364), // 400:520 ratio
+        new THREE.MeshBasicMaterial({ map: logsTex, transparent: true, depthWrite: false })
       );
-      dPanel.visible = false;
-      scene.add(dPanel);
+      logsPanel.visible = false;
+      scene.add(logsPanel);
 
       // Wheel marker spheres
       const wheelSpheres = WHEEL_COLORS.map(col => {
@@ -739,11 +816,11 @@ export default function ImmersiveScan({ onCapture, onExit }) {
       const notePreviewCanvas = document.createElement('canvas');
       notePreviewCanvas.width = 128; notePreviewCanvas.height = 128;
       const npc = notePreviewCanvas.getContext('2d');
-      npc.fillStyle = '#fef08a';
+      npc.fillStyle = '#d2d2d2';
       npc.beginPath(); npc.roundRect(4, 4, 120, 120, 16); npc.fill();
-      npc.strokeStyle = '#ca8a04'; npc.lineWidth = 4;
+      npc.strokeStyle = '#686868'; npc.lineWidth = 4;
       npc.beginPath(); npc.roundRect(4, 4, 120, 120, 16); npc.stroke();
-      npc.fillStyle = '#ca8a04'; npc.font = 'bold 52px Arial'; npc.textAlign = 'center'; npc.textBaseline = 'middle';
+      npc.fillStyle = '#4d4d4d'; npc.font = 'bold 52px Arial'; npc.textAlign = 'center'; npc.textBaseline = 'middle';
       npc.fillText('🎙', 64, 64);
       const notePreviewTex = new THREE.CanvasTexture(notePreviewCanvas);
       const notePreview = new THREE.Mesh(
@@ -813,15 +890,15 @@ export default function ImmersiveScan({ onCapture, onExit }) {
           confirmBtn.quaternion.copy(quat);
         }
 
-        // Damage panel (below status panel)
-        if (dPanel.visible) {
-          const left = new THREE.Vector3(-1, 0, 0).applyQuaternion(quat);
-          dPanel.position.set(
-            tx + fwd.x * 0.88 + left.x * 0.34,
-            ty - 0.04 + fwd.y * 0.88,
-            tz + fwd.z * 0.88 + left.z * 0.34
+        // AI Logs tray (right of status panel)
+        if (logsPanel.visible) {
+          const right = new THREE.Vector3(1, 0, 0).applyQuaternion(quat);
+          logsPanel.position.set(
+            tx + fwd.x * 0.88 + right.x * 0.30,
+            ty - 0.06 + fwd.y * 0.88,
+            tz + fwd.z * 0.88 + right.z * 0.30
           );
-          dPanel.quaternion.copy(quat);
+          logsPanel.quaternion.copy(quat);
         }
 
         // Controller rays — update pose cache for floor intersection on trigger
@@ -1033,7 +1110,51 @@ export default function ImmersiveScan({ onCapture, onExit }) {
         if (phase === 'scanning') {
           if (annotating) { stopVosk(); return; }
 
-          // Trigger = play/pause a saved sticky note (aim at its play button)
+          // Logs tray Save/Cancel clicks
+          if (logsPanel.visible) {
+            for (const p of lastControllerPoses) {
+              const origin = new THREE.Vector3(p.x, p.y, p.z);
+              const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(new THREE.Quaternion(p.qx, p.qy, p.qz, p.qw)).normalize();
+              const hits = new THREE.Raycaster(origin, dir).intersectObject(logsPanel);
+              if (hits.length > 0 && hits[0].uv) {
+                const { x: u, y: v } = hits[0].uv;
+                // Canvas y = (1 - v) * 520; items start at cy=70, each 90px
+                const canvasY = (1 - v) * 520;
+                const pending = aiLogs.filter(l => !l.saved);
+                const visible = pending.slice(-5);
+                const itemIdx = Math.floor((canvasY - 70) / 90);
+                if (itemIdx >= 0 && itemIdx < visible.length) {
+                  const btnCanvasY = 70 + itemIdx * 90 + 52; // button row top
+                  const btnCanvasYBot = btnCanvasY + 22;
+                  if (canvasY >= btnCanvasY && canvasY <= btnCanvasYBot) {
+                    const log = visible[itemIdx];
+                    if (u < 0.40) {
+                      // Cancel — remove from aiLogs
+                      aiLogs = aiLogs.filter(l => l.id !== log.id);
+                      drawLogsTray();
+                      if (aiLogs.filter(l => !l.saved).length === 0) logsPanel.visible = false;
+                    } else if (u > 0.43) {
+                      // Save — mark saved, spawn AI sticky note near car
+                      log.saved = true;
+                      const angle = (currentBucket / 5) * Math.PI * 2;
+                      const spawnDist = (scanRadius || 2) * 0.6;
+                      const cx = carCenter ? carCenter.x : (lastViewerT?.x ?? 0);
+                      const cz = carCenter ? carCenter.z : (lastViewerT?.z ?? -1.5);
+                      const nx = cx + Math.cos(angle) * spawnDist;
+                      const nz = cz + Math.sin(angle) * spawnDist;
+                      const ny = (lastViewerT?.y ?? 1.5) - 0.3;
+                      const mesh = createAIStickyNote(log.text, { x: nx, y: ny, z: nz });
+                      stickyNotes.push({ mesh, noteEntry: { id: log.id, text: log.text, isAI: true } });
+                      drawLogsTray();
+                    }
+                    return;
+                  }
+                }
+              }
+            }
+          }
+
+          // Trash icon on any sticky note (UV: u>0.83, v<0.09)
           if (stickyNotes.length > 0) {
             for (const p of lastControllerPoses) {
               const origin = new THREE.Vector3(p.x, p.y, p.z);
@@ -1041,9 +1162,29 @@ export default function ImmersiveScan({ onCapture, onExit }) {
               const hits = new THREE.Raycaster(origin, dir).intersectObjects(stickyNotes.map(n => n.mesh));
               if (hits.length > 0 && hits[0].uv) {
                 const { x: u, y: v } = hits[0].uv;
-                if (u < 0.15 && v > 0.81) {
+                if (u > 0.83 && v < 0.09) {
+                  // Trash hit — delete this note
+                  const hitMesh = hits[0].object;
+                  const hitNote = stickyNotes.find(n => n.mesh === hitMesh);
+                  if (activeAudioMesh === hitMesh) { activeAudio?.pause(); activeAudio = null; activeAudioMesh = null; }
+                  scene.remove(hitMesh);
+                  stickyNotes = stickyNotes.filter(n => n.mesh !== hitMesh);
+                  if (hitNote?.noteEntry) {
+                    if (hitNote.noteEntry.isAI) {
+                      aiLogs = aiLogs.filter(l => l.id !== hitNote.noteEntry.id);
+                      if (aiLogs.filter(l => !l.saved).length === 0) logsPanel.visible = false;
+                      else drawLogsTray();
+                    } else {
+                      voiceNotes = voiceNotes.filter(n => n.id !== hitNote.noteEntry.id);
+                      saveNotes();
+                    }
+                  }
+                  return;
+                }
+                // Play/pause for voice notes (non-AI)
+                if (u < 0.11 && v > 0.79) {
                   const hit = stickyNotes.find(n => n.mesh === hits[0].object);
-                  if (hit?.noteEntry?.audioUrl) {
+                  if (hit && !hit.noteEntry.isAI && hit.noteEntry.audioUrl) {
                     if (activeAudio && activeAudioMesh === hit.mesh) {
                       activeAudio.pause(); activeAudio = null; activeAudioMesh = null;
                       updateStickyFinal(hit.mesh, hit.noteEntry, false);
@@ -1056,10 +1197,7 @@ export default function ImmersiveScan({ onCapture, onExit }) {
                       activeAudio = new Audio(hit.noteEntry.audioUrl);
                       activeAudioMesh = hit.mesh;
                       updateStickyFinal(hit.mesh, hit.noteEntry, true);
-                      activeAudio.onended = () => {
-                        activeAudio = null; activeAudioMesh = null;
-                        updateStickyFinal(hit.mesh, hit.noteEntry, false);
-                      };
+                      activeAudio.onended = () => { activeAudio = null; activeAudioMesh = null; updateStickyFinal(hit.mesh, hit.noteEntry, false); };
                       activeAudio.play().catch(() => {});
                     }
                     return;
@@ -1114,7 +1252,7 @@ export default function ImmersiveScan({ onCapture, onExit }) {
 
         annotating = true;
         vPanel.visible = true;
-        drawVoice('Recording...');
+        // drawVoice('Recording...');
         startVosk(activeStickyMesh, noteEntry);
         drawStatus();
       });

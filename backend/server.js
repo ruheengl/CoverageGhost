@@ -15,6 +15,7 @@ app.use('/ocr-document',   require('./routes/ocrDocument'));
 app.use('/save-frame',     require('./routes/saveFrame'));
 app.use('/scan-frame',     require('./routes/scanFrame'));
 app.use('/notes',            require('./routes/saveNotes'));
+app.use('/scan-frames',      require('./routes/listScanFrames'));
 
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
 
