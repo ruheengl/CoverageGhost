@@ -1,10 +1,10 @@
 import { useState } from 'react';
+const inWebSpatial = /WebSpatial\//.test(navigator.userAgent);
 import LoginScene from './scenes/LoginScene';
 import ScanScene from './scenes/ScanScene';
 import ImmersiveViewer from './components/ImmersiveViewer';
 import AnnotateScene from './scenes/AnnotateScene';
 import ReviewScene from './scenes/ReviewScene';
-import CameraBackground from './components/CameraBackground';
 import './index.css';
 
 export default function App() {
@@ -18,7 +18,9 @@ export default function App() {
 
   return (
     <div style={{ width: '100vw', height: '100vh', overflow: 'hidden' }}>
-      <CameraBackground active={scene !== 'splat-view'} />
+      {!inWebSpatial && (
+        <div style={{ position: 'fixed', inset: 0, background: 'linear-gradient(135deg, #020617 0%, #0d1a2e 60%, #020617 100%)', zIndex: -1 }} />
+      )}
       {scene === 'login' && (
         <LoginScene onLogin={(data) => { setClaim(data); setScene('scan'); }} />
       )}

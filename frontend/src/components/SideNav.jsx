@@ -1,3 +1,5 @@
+import { enableXRLayer } from '../lib/enableXRLayer';
+
 // Side navigation — matches the dark vertical pill from Figma
 // Collapsed (icon-only) on narrow screens, expanded with labels otherwise
 
@@ -76,12 +78,11 @@ export default function SideNav({ active, onNavigate, expanded = true }) {
     zIndex: 100,
     display: 'flex',
     flexDirection: 'column',
-    background: 'rgba(52,52,52,0.90)',
-    backdropFilter: 'blur(20px)',
-    WebkitBackdropFilter: 'blur(20px)',
+    background: 'rgba(52,52,52,0.92)',
     borderRadius: 20,
     border: '1px solid rgba(255,255,255,0.10)',
     boxShadow: '0 8px 40px rgba(0,0,0,0.45)',
+    ...enableXRLayer({ zOffset: 0.2, backgroundMaterial: 'translucent' }),
     padding: '10px 0',
     minWidth: expanded ? 220 : 62,
     transition: 'min-width 0.2s ease',
@@ -123,6 +124,7 @@ export default function SideNav({ active, onNavigate, expanded = true }) {
 function NavItem({ item, isActive, expanded, onClick }) {
   return (
     <button
+      className="spatial-btn"
       onClick={onClick}
       style={{
         display: 'flex',

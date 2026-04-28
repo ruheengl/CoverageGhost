@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import AppBackground from '../components/AppBackground';
 
 export default function LoginScene({ onLogin }) {
   const [agentId, setAgentId] = useState('');
@@ -10,8 +9,7 @@ export default function LoginScene({ onLogin }) {
   }
 
   return (
-    <div style={{ width: '100vw', height: '100vh', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <AppBackground />
+    <div style={{ width: '100vw', height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <div className="fade-up" style={{
         position: 'relative', zIndex: 10,
         background: 'rgba(52,52,52,0.88)',
@@ -30,7 +28,7 @@ export default function LoginScene({ onLogin }) {
           padding: '32px 28px 28px',
         }}>
           <div style={{ textAlign: 'center', fontSize: 30, fontWeight: 800, color: '#1a3ecf', letterSpacing: '-0.02em', marginBottom: 32 }}>
-            LOGO
+            LOGON
           </div>
           <label style={{ fontSize: 13, fontWeight: 500, color: 'rgba(20,20,50,0.80)', display: 'block', marginBottom: 6 }}>
             Agent ID<span style={{ color: '#cc2222' }}>*</span>

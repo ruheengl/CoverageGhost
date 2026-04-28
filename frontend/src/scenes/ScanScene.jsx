@@ -1,5 +1,4 @@
 import { useState, useRef, useEffect } from 'react';
-import AppBackground from '../components/AppBackground';
 import SideNav from '../components/SideNav';
 import PolicyCitation from '../components/PolicyCitation';
 import ClaimHUD from '../components/ClaimHUD';
@@ -14,9 +13,7 @@ const ANIM_MS = 6000;
 const SPIN = ['◐', '◓', '◑', '◒'];
 
 const CARD = {
-  background: 'rgba(30,30,40,0.70)',
-  backdropFilter: 'blur(20px)',
-  WebkitBackdropFilter: 'blur(20px)',
+  background: 'rgba(30,30,40,0.85)',
   borderRadius: 20,
   border: '1px solid rgba(255,255,255,0.10)',
   boxShadow: '0 8px 40px rgba(0,0,0,0.4)',
@@ -54,8 +51,8 @@ function TaskCard({ onStart, onDismiss }) {
       ))}
       <div style={DIVIDER} />
       <div style={{ display: 'flex', gap: 12 }}>
-        <button className="btn-secondary" onClick={onDismiss} style={{ flex: 1 }}>Dismiss</button>
-        <button className="btn-primary" onClick={onStart} style={{ flex: 1 }}>Start Inspection</button>
+        <button className="btn-secondary spatial-btn" onClick={onDismiss} style={{ flex: 1 }}>Dismiss</button>
+        <button className="btn-primary spatial-btn" onClick={onStart} style={{ flex: 1 }}>Start Inspection</button>
       </div>
     </div>
   );
@@ -81,7 +78,7 @@ function UIQTokenScreen({ onVerify }) {
           color: '#1a1a2e', marginBottom: 20, fontFamily: 'monospace', boxSizing: 'border-box',
         }}
       />
-      <button className="btn-primary" onClick={() => onVerify(token)} style={{ borderRadius: 12, width: '100%' }}>
+      <button className="btn-primary spatial-btn" onClick={() => onVerify(token)} style={{ borderRadius: 12, width: '100%' }}>
         Verify Token
       </button>
     </div>
@@ -97,8 +94,8 @@ function DriverDetailsChoice({ onManual, onScan }) {
       </div>
       <div style={DIVIDER} />
       <div style={{ display: 'flex', gap: 12 }}>
-        <button className="btn-secondary" onClick={onManual} style={{ flex: 1 }}>Enter Manually</button>
-        <button className="btn-primary" onClick={onScan} style={{ flex: 1 }}>Scan Document</button>
+        <button className="btn-secondary spatial-btn" onClick={onManual} style={{ flex: 1 }}>Enter Manually</button>
+        <button className="btn-primary spatial-btn" onClick={onScan} style={{ flex: 1 }}>Scan Document</button>
       </div>
     </div>
   );
@@ -152,8 +149,8 @@ function DriverDetailsResult({ driver, onCapturePhoto, onManual }) {
         A photo of the driver is required to complete verification.
       </div>
       <div style={{ display: 'flex', gap: 12 }}>
-        <button className="btn-secondary" onClick={onManual} style={{ flex: 1 }}>Edit Details</button>
-        <button className="btn-primary" onClick={onCapturePhoto} style={{ flex: 1 }}>Capture Photo</button>
+        <button className="btn-secondary spatial-btn" onClick={onManual} style={{ flex: 1 }}>Edit Details</button>
+        <button className="btn-primary spatial-btn" onClick={onCapturePhoto} style={{ flex: 1 }}>Capture Photo</button>
       </div>
     </div>
   );
@@ -310,7 +307,7 @@ function DamageScanScreen({ claim, onComplete }) {
           ...enableXRLayer({ zOffset: 0.5 }),
         }}>
           {xrSupported && !inWebSpatial && (
-            <button onClick={() => setImmersiveActive(true)} style={{
+            <button className="spatial-btn" onClick={() => setImmersiveActive(true)} style={{
               padding: '14px 36px', background: '#0d9488', border: 'none',
               borderRadius: 40, color: 'white', fontSize: 16, fontWeight: 700, cursor: 'pointer',
             }}>
@@ -341,7 +338,7 @@ function DamageScanScreen({ claim, onComplete }) {
           background: 'rgba(2,6,23,0.6)', zIndex: 10,
         }}>
           <div style={{
-            background: 'rgba(15,23,42,0.72)', backdropFilter: 'blur(20px)',
+            background: 'rgba(15,23,42,0.90)',
             borderRadius: 20, border: '1px solid rgba(255,255,255,0.10)',
             padding: 28, width: 480, maxHeight: '80vh', overflowY: 'auto',
           }}>
@@ -365,6 +362,7 @@ function DamageScanScreen({ claim, onComplete }) {
             )}
             <div style={DIVIDER} />
             <button
+              className="spatial-btn"
               onClick={() => onComplete(damageData, coverageDecisions, covMap, SPLAT_URL, voiceNotes)}
               style={{
                 width: '100%', padding: '13px', background: '#0d9488', border: 'none',
@@ -387,8 +385,7 @@ export default function ScanScene({ claim, onComplete }) {
   const [driver, setDriver] = useState({});
 
   return (
-    <div style={{ width: '100vw', height: '100vh', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <AppBackground />
+    <div style={{ width: '100vw', height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <SideNav />
       <div style={{ position: 'relative', zIndex: 10 }}>
         {step === 'task' && (
