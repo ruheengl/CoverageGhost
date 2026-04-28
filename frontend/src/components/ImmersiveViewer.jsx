@@ -18,17 +18,17 @@ export default function ImmersiveViewer({ splatUrl, damageData, onComplete, onEx
 
     function drawPanel(line1, line2 = '') {
       pc.clearRect(0, 0, 512, 200);
-      pc.fillStyle = 'rgba(15,23,42,0.92)';
+      pc.fillStyle = 'rgba(22,24,30,0.92)';
       rrect(pc, 0, 0, 512, 200, 28); pc.fill();
-      pc.strokeStyle = '#0d9488'; pc.lineWidth = 3;
+      pc.strokeStyle = 'rgba(255,255,255,0.1)'; pc.lineWidth = 2;
       rrect(pc, 0, 0, 512, 200, 28); pc.stroke();
-      pc.fillStyle = '#99f6e4'; pc.font = 'bold 22px Arial'; pc.textAlign = 'center';
-      pc.fillText('3D Reconstruction', 256, 44);
-      pc.fillStyle = 'white'; pc.font = '18px Arial';
-      pc.fillText(line1, 256, 84);
-      if (line2) { pc.fillStyle = 'rgba(255,255,255,0.55)'; pc.font = '15px Arial'; pc.fillText(line2, 256, 114); }
-      pc.fillStyle = 'rgba(255,255,255,0.35)'; pc.font = '15px Arial';
-      pc.fillText('Pull trigger to continue', 256, 170);
+      pc.fillStyle = 'rgba(255,255,255,0.45)'; pc.font = '13px Arial'; pc.textAlign = 'center';
+      pc.fillText('3D RECONSTRUCTION', 256, 38);
+      pc.fillStyle = 'white'; pc.font = 'bold 20px Arial';
+      pc.fillText(line1, 256, 78);
+      if (line2) { pc.fillStyle = 'rgba(255,255,255,0.5)'; pc.font = '15px Arial'; pc.fillText(line2, 256, 108); }
+      pc.fillStyle = 'rgba(255,255,255,0.3)'; pc.font = '14px Arial';
+      pc.fillText('Pull trigger to continue', 256, 168);
       pTex.needsUpdate = true;
     }
 
@@ -65,7 +65,7 @@ export default function ImmersiveViewer({ splatUrl, damageData, onComplete, onEx
         scene.add(spark);
 
         const butterfly = new SplatMesh({ url: splatUrl });
-        butterfly.quaternion.set(1, 0, 0, 0);
+        butterfly.quaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI);
         butterfly.position.set(0, 0, -3);
         scene.add(butterfly);
         console.log('[ImmersiveViewer] SparkRenderer created for:', splatUrl);

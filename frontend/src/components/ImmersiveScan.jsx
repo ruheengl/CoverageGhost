@@ -6,10 +6,16 @@ const BUCKETS = 5;
 const BUCKET_DEG = 360 / BUCKETS;
 const MIN_BUCKETS_COMPLETE = 0;
 
-// 4-wheel setup phases in order
 const WHEEL_PHASES = ['setup-fl', 'setup-fr', 'setup-rr', 'setup-rl'];
 const WHEEL_LABELS = ['Front-Left\nWheel', 'Front-Right\nWheel', 'Rear-Right\nWheel', 'Rear-Left\nWheel'];
-const WHEEL_COLORS = [0x0d9488, 0x22c55e, 0xef4444, 0xfbbf24];
+
+// ── Design tokens (dark charcoal, Apple-like) ────────────────────────────────
+const P_BG     = 'rgba(22,24,30,0.92)';
+const P_BORDER = 'rgba(255,255,255,0.1)';
+const T1       = '#ffffff';
+const T2       = 'rgba(255,255,255,0.55)';
+const T3       = 'rgba(255,255,255,0.3)';
+const ACCENT   = '#ff3b30'; // recording indicator only
 
 export default function ImmersiveScan({ onCapture, onExit }) {
   const videoRef = useRef(null);
@@ -17,238 +23,250 @@ export default function ImmersiveScan({ onCapture, onExit }) {
 
   useEffect(() => {
     let phase = 'setup-fl';
-    let wheelPoints = [null, null, null, null]; // fl, fr, rr, rl
+    let wheelPoints = [null, null, null, null];
     let carCenter = null, carLength = 4.5, scanRadius = 3.5;
     let buckets = new Array(BUCKETS).fill(null);
     let voiceNotes = [];
     let annotating = false;
     let tooClose = false;
-    let lastHitPoint = null;
     let lastViewerT = null, lastViewerFwd = null;
-    let lastFloorY = 0; // real floor Y in current reference space, updated via hit-test
+    let lastFloorY = 0;
     let bucketCooldowns = new Array(BUCKETS).fill(0);
     let lastPanelDraw = 0;
     let lastRingUpdate = 0;
     let currentBucket = 0;
     let renderer, session, scene, refSpace, hitTestSource, stream;
-    let ringMeshes = [];
-    let stickyNotes = []; // { mesh, noteEntry } — tracked for play-button raycasts
-    let activeAudio = null;       // currently playing Audio element
-    let activeAudioMesh = null;   // mesh whose button is in play state
-    let gripHeld = false;         // grip button currently held (note placement arm)
-    let grippedStickyIdx = -1;    // index of sticky note being moved (-1 = none)
-    let gripPreviewPos = null;    // placement position computed while grip held
+    let ringMeshes = [];  // [0]=ring line, [1..BUCKETS]=tick lines
+    let stickyNotes = [];
+    let activeAudio = null;
+    let activeAudioMesh = null;
+    let gripHeld = false;
+    let grippedStickyIdx = -1;
+    let gripPreviewPos = null;
     const scanId = Date.now();
     let analysisInFlight = false;
-    let lastControllerPoses = []; // cached each XR frame from targetRaySpace
-    let lastDebugPt = null; // last placed wheel point for on-screen debug
-    let grabbedSphereIdx = -1; // index of wheel sphere currently being dragged (-1 = none)
-    let pendingNotePos = null; // 3D hit point captured on first trigger press, attached to note on second
-    let activeStickyMesh = null; // the live sticky note mesh being recorded into
-    let wheelsLocked = false; // true after user confirms wheel placement
+    let lastControllerPoses = [];
+    let grabbedDiscIdx = -1;
+    let pendingNotePos = null;
+    let activeStickyMesh = null;
+    let wheelsLocked = false;
 
-    // Head-locked status panel (text only — no 2D ring)
     const mCanvas = document.createElement('canvas');
     mCanvas.width = 512; mCanvas.height = 256;
     const mc = mCanvas.getContext('2d');
-    let mTex;
+    let mTex, mPanel;
 
-    // Voice note panel
     const vCanvas = document.createElement('canvas');
-    vCanvas.width = 512; vCanvas.height = 300;
+    vCanvas.width = 512; vCanvas.height = 280;
     const vc = vCanvas.getContext('2d');
     let vTex, vPanel;
 
-    // Live damage analysis panel
     const dCanvas = document.createElement('canvas');
-    dCanvas.width = 512; dCanvas.height = 360;
+    dCanvas.width = 512; dCanvas.height = 340;
     const dc = dCanvas.getContext('2d');
     let dTex, dPanel;
 
     // ── Drawing helpers ──────────────────────────────────────────────────────
 
     function drawSetup(stepIdx) {
-      const label = WHEEL_LABELS[stepIdx];
       mc.clearRect(0, 0, 512, 256);
-      mc.fillStyle = 'rgba(15,23,42,0.65)';
-      rrect(mc, 0, 0, 512, 256, 32); mc.fill();
-      mc.strokeStyle = WHEEL_COLORS[stepIdx] ? `#${WHEEL_COLORS[stepIdx].toString(16).padStart(6,'0')}` : '#0d9488';
-      mc.lineWidth = 3; rrect(mc, 0, 0, 512, 256, 32); mc.stroke();
+      mc.fillStyle = P_BG; rrect(mc, 0, 0, 512, 256, 24); mc.fill();
+      mc.strokeStyle = P_BORDER; mc.lineWidth = 1.5;
+      rrect(mc, 0, 0, 512, 256, 24); mc.stroke();
 
       // Step dots
-      mc.fillStyle = 'rgba(255,255,255,0.2)';
       for (let i = 0; i < 4; i++) {
-        mc.beginPath();
-        mc.arc(176 + i * 54, 36, 10, 0, Math.PI * 2);
-        mc.fillStyle = i < stepIdx ? '#0d9488' : i === stepIdx ? '#34d399' : 'rgba(255,255,255,0.2)';
+        mc.beginPath(); mc.arc(176 + i * 54, 36, 8, 0, Math.PI * 2);
+        mc.fillStyle = i === stepIdx ? T1 : i < stepIdx ? 'rgba(255,255,255,0.4)' : 'rgba(255,255,255,0.12)';
         mc.fill();
       }
 
-      mc.fillStyle = 'white'; mc.font = 'bold 24px Arial'; mc.textAlign = 'center';
-      mc.fillText('Tap wheel on ground', 256, 80);
-      mc.font = '28px Arial'; mc.fillStyle = '#34d399';
-      label.split('\n').forEach((l, i) => mc.fillText(l, 256, 126 + i * 36));
-      mc.fillStyle = 'rgba(255,255,255,0.4)'; mc.font = '17px Arial';
-      mc.fillText('Pull trigger to place', 256, 210);
-
-      // Debug: show last placed point coordinates
-      if (lastDebugPt) {
-        mc.fillStyle = '#fbbf24'; mc.font = '14px monospace';
-        mc.fillText(
-          `last: x=${lastDebugPt.x.toFixed(3)}  y=${lastDebugPt.y.toFixed(3)}  z=${lastDebugPt.z.toFixed(3)}`,
-          256, 238
-        );
-      }
+      mc.fillStyle = T1; mc.font = 'bold 20px "DM Sans",Arial'; mc.textAlign = 'center';
+      mc.fillText('Place wheel on ground', 256, 80);
+      mc.font = '24px "DM Sans",Arial'; mc.fillStyle = T1;
+      const label = WHEEL_LABELS[stepIdx];
+      label.split('\n').forEach((l, i) => mc.fillText(l, 256, 120 + i * 32));
+      mc.fillStyle = T3; mc.font = '14px "DM Sans",Arial';
+      mc.fillText('Pull trigger to place', 256, 206);
       mTex.needsUpdate = true;
     }
 
     function drawConfirm() {
       mc.clearRect(0, 0, 512, 256);
-      mc.fillStyle = 'rgba(15,23,42,0.65)';
-      rrect(mc, 0, 0, 512, 256, 32); mc.fill();
-      mc.strokeStyle = '#22c55e'; mc.lineWidth = 3;
-      rrect(mc, 0, 0, 512, 256, 32); mc.stroke();
+      mc.fillStyle = P_BG; rrect(mc, 0, 0, 512, 256, 24); mc.fill();
+      mc.strokeStyle = P_BORDER; mc.lineWidth = 1.5;
+      rrect(mc, 0, 0, 512, 256, 24); mc.stroke();
 
       for (let i = 0; i < 4; i++) {
-        mc.beginPath();
-        mc.arc(176 + i * 54, 36, 10, 0, Math.PI * 2);
-        mc.fillStyle = '#0d9488'; mc.fill();
+        mc.beginPath(); mc.arc(176 + i * 54, 36, 8, 0, Math.PI * 2);
+        mc.fillStyle = T1; mc.fill();
       }
-
-      mc.fillStyle = 'white'; mc.font = 'bold 26px Arial'; mc.textAlign = 'center';
-      mc.fillText('All 4 wheels placed!', 256, 90);
-      mc.fillStyle = 'rgba(255,255,255,0.55)'; mc.font = '18px Arial';
-      mc.fillText('You can still grab & adjust spheres.', 256, 130);
-      mc.fillText('Tap the button below when ready.', 256, 158);
+      mc.fillStyle = T1; mc.font = 'bold 22px "DM Sans",Arial'; mc.textAlign = 'center';
+      mc.fillText('All 4 wheels placed', 256, 88);
+      mc.fillStyle = T2; mc.font = '15px "DM Sans",Arial';
+      mc.fillText('Grab and adjust discs if needed.', 256, 126);
+      mc.fillText('Tap the Confirm button to begin scan.', 256, 150);
       mTex.needsUpdate = true;
     }
 
     function drawStatus() {
       const filled = buckets.filter(Boolean).length;
       mc.clearRect(0, 0, 512, 256);
-      mc.fillStyle = 'rgba(15,23,42,0.65)';
-      rrect(mc, 0, 0, 512, 256, 32); mc.fill();
+      mc.fillStyle = P_BG; rrect(mc, 0, 0, 512, 256, 24); mc.fill();
 
-      mc.fillStyle = 'white'; mc.font = 'bold 48px Arial'; mc.textAlign = 'center';
+      mc.fillStyle = T1; mc.font = 'bold 52px "DM Sans",Arial'; mc.textAlign = 'center';
       mc.textBaseline = 'middle';
-      mc.fillText(`${filled} / ${BUCKETS}`, 256, 80);
+      mc.fillText(`${filled} / ${BUCKETS}`, 256, 78);
       mc.textBaseline = 'alphabetic';
-      mc.font = '16px Arial'; mc.fillStyle = 'rgba(255,255,255,0.45)';
-      mc.fillText('areas scanned', 256, 116);
+      mc.font = '13px "DM Sans",Arial'; mc.fillStyle = T3;
+      mc.fillText('areas scanned', 256, 114);
 
       if (tooClose) {
-        mc.fillStyle = '#f87171'; mc.font = 'bold 20px Arial';
-        mc.fillText('⚠ Step back to the ring', 256, 160);
+        mc.fillStyle = ACCENT; mc.font = 'bold 16px "DM Sans",Arial';
+        mc.fillText('Step back to the boundary ring', 256, 158);
       } else if (annotating) {
-        mc.fillStyle = '#fbbf24'; mc.font = 'bold 20px Arial';
-        mc.fillText('🎙 Recording... pull trigger to save', 256, 160);
+        mc.fillStyle = T1; mc.font = 'bold 16px "DM Sans",Arial';
+        mc.fillText('Recording — pull trigger to save', 256, 158);
       } else if (filled >= MIN_BUCKETS_COMPLETE) {
-        mc.fillStyle = '#34d399'; mc.font = 'bold 20px Arial';
-        mc.fillText('✓ Pull trigger to complete scan', 256, 160);
-        mc.fillStyle = 'rgba(255,255,255,0.35)'; mc.font = '16px Arial';
-        mc.fillText('or keep walking for more coverage', 256, 190);
+        mc.fillStyle = T1; mc.font = 'bold 16px "DM Sans",Arial';
+        mc.fillText('Pull trigger to complete scan', 256, 158);
+        mc.fillStyle = T3; mc.font = '13px "DM Sans",Arial';
+        mc.fillText('or keep walking for more coverage', 256, 184);
       } else {
-        mc.fillStyle = 'rgba(255,255,255,0.5)'; mc.font = '18px Arial';
-        mc.fillText('Walk along the ring around the car', 256, 160);
-        mc.fillStyle = 'rgba(255,255,255,0.3)'; mc.font = '15px Arial';
-        mc.fillText('Pull trigger to add a voice note', 256, 190);
+        mc.fillStyle = T2; mc.font = '15px "DM Sans",Arial';
+        mc.fillText('Walk the boundary ring around the car', 256, 158);
+        mc.fillStyle = T3; mc.font = '13px "DM Sans",Arial';
+        mc.fillText('Grip + release to add a voice note', 256, 182);
       }
       mTex.needsUpdate = true;
     }
 
     function drawVoice(text) {
-      vc.clearRect(0, 0, 512, 300);
-      vc.fillStyle = 'rgba(15,23,42,0.65)';
-      rrect(vc, 0, 0, 512, 300, 28); vc.fill();
-      vc.strokeStyle = '#fbbf24'; vc.lineWidth = 2.5;
-      rrect(vc, 0, 0, 512, 300, 28); vc.stroke();
-      vc.fillStyle = '#fbbf24'; vc.font = '24px Arial'; vc.textAlign = 'center';
-      vc.fillText('🎙 Field Note', 256, 46);
-      vc.fillStyle = 'white'; vc.font = '19px Arial';
+      vc.clearRect(0, 0, 512, 280);
+      vc.fillStyle = P_BG; rrect(vc, 0, 0, 512, 280, 22); vc.fill();
+      vc.strokeStyle = P_BORDER; vc.lineWidth = 1.5;
+      rrect(vc, 0, 0, 512, 280, 22); vc.stroke();
+      // Red recording dot
+      vc.fillStyle = ACCENT; vc.beginPath(); vc.arc(32, 38, 7, 0, Math.PI*2); vc.fill();
+      vc.fillStyle = T1; vc.font = 'bold 16px "DM Sans",Arial'; vc.textAlign = 'left';
+      vc.fillText('Voice Note', 48, 44);
+      vc.fillStyle = T3; vc.font = '12px "DM Sans",Arial'; vc.textAlign = 'right';
+      vc.fillText('pull trigger to save', 488, 44);
+      // Thin separator
+      vc.strokeStyle = P_BORDER; vc.lineWidth = 1;
+      vc.beginPath(); vc.moveTo(20, 58); vc.lineTo(492, 58); vc.stroke();
+      // Transcription
+      vc.fillStyle = T2; vc.font = '16px "DM Sans",Arial'; vc.textAlign = 'left';
       const words = text.split(' ');
-      let line = '', y = 86;
+      let line = '', y = 84;
       for (const word of words) {
         const test = line + word + ' ';
-        if (vc.measureText(test).width > 460 && line) {
-          vc.fillText(line.trim(), 256, y); line = word + ' '; y += 28;
-        } else { line = test; }
+        if (vc.measureText(test).width > 468 && line) {
+          vc.fillText(line.trim(), 20, y); line = word + ' '; y += 24;
+        } else line = test;
+        if (y > 260) break;
       }
-      if (line) vc.fillText(line.trim(), 256, y);
-      vc.fillStyle = 'rgba(255,255,255,0.4)'; vc.font = '16px Arial';
-      vc.fillText('Pull trigger to save', 256, 268);
+      if (line) vc.fillText(line.trim(), 20, y);
       vTex.needsUpdate = true;
     }
 
     function drawDamage(damage) {
       const areas = damage?.affected_areas || damage?.damaged_areas || [];
-      dc.clearRect(0, 0, 512, 360);
-      dc.fillStyle = 'rgba(15,23,42,0.65)';
-      rrect(dc, 0, 0, 512, 360, 28); dc.fill();
-      dc.strokeStyle = '#34d399'; dc.lineWidth = 2;
-      rrect(dc, 0, 0, 512, 360, 28); dc.stroke();
-      dc.fillStyle = '#34d399'; dc.font = 'bold 19px Arial'; dc.textAlign = 'center';
-      dc.fillText('Live Analysis', 256, 34);
+      dc.clearRect(0, 0, 512, 340);
+      dc.fillStyle = P_BG; rrect(dc, 0, 0, 512, 340, 22); dc.fill();
+      dc.strokeStyle = P_BORDER; dc.lineWidth = 1.5;
+      rrect(dc, 0, 0, 512, 340, 22); dc.stroke();
+      dc.fillStyle = T2; dc.font = '11px "DM Sans",Arial'; dc.textAlign = 'center';
+      dc.fillText('LIVE ANALYSIS', 256, 28);
+      dc.strokeStyle = P_BORDER; dc.lineWidth = 1;
+      dc.beginPath(); dc.moveTo(20, 38); dc.lineTo(492, 38); dc.stroke();
       if (!areas.length) {
-        dc.fillStyle = 'rgba(255,255,255,0.4)'; dc.font = '16px Arial';
-        dc.fillText('No damage detected', 256, 100);
+        dc.fillStyle = T3; dc.font = '14px "DM Sans",Arial';
+        dc.fillText('No damage detected yet', 256, 100);
       } else {
         areas.slice(0, 5).forEach((area, i) => {
-          const y = 54 + i * 58;
-          const sev = (area.severity || '').toLowerCase();
-          const col = sev === 'severe' ? 'rgba(239,68,68,0.25)' : sev === 'moderate' ? 'rgba(251,191,36,0.2)' : 'rgba(52,211,153,0.15)';
-          dc.fillStyle = col; rrect(dc, 16, y, 480, 50, 10); dc.fill();
+          const y = 48 + i * 56;
+          dc.fillStyle = 'rgba(255,255,255,0.04)'; rrect(dc, 14, y, 484, 48, 8); dc.fill();
           const name = area.name || area.area_name || area.area || 'Unknown';
-          dc.fillStyle = 'white'; dc.font = 'bold 15px Arial'; dc.textAlign = 'left';
-          dc.fillText(name, 28, y + 18);
-          dc.fillStyle = 'rgba(255,255,255,0.6)'; dc.font = '13px Arial';
-          dc.fillText(`${area.severity || ''} · ${area.damage_type || area.description?.slice(0, 40) || ''}`.replace(/^ · | · $/, ''), 28, y + 36);
+          dc.fillStyle = T1; dc.font = 'bold 13px "DM Sans",Arial'; dc.textAlign = 'left';
+          dc.fillText(name, 26, y + 17);
+          dc.fillStyle = T3; dc.font = '12px "DM Sans",Arial';
+          const sev = area.severity || '';
+          const desc = area.damage_type || area.description?.slice(0, 38) || '';
+          dc.fillText([sev, desc].filter(Boolean).join(' · '), 26, y + 35);
         });
       }
       dTex.needsUpdate = true;
     }
 
-    // ── Ring (world-space 3D arc segments) ──────────────────────────────────
+    // ── Boundary ring (line ring + tick posts) ───────────────────────────────
 
     function createScanRing(scene) {
+      ringMeshes.forEach(m => scene.remove(m));
       ringMeshes = [];
-      // Vertical pillars — visible from standing height, not flat on floor
-      const geo = new THREE.BoxGeometry(0.06, 0.5, 0.06);
+
+      // Main circular ring — Meta Quest guardian style
+      const segments = 96;
+      const pts = [];
+      for (let i = 0; i <= segments; i++) {
+        const a = (i / segments) * Math.PI * 2;
+        pts.push(new THREE.Vector3(
+          carCenter.x + Math.cos(a) * scanRadius,
+          lastFloorY + 0.015,
+          carCenter.z + Math.sin(a) * scanRadius
+        ));
+      }
+      const ringLine = new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints(pts),
+        new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.32 })
+      );
+      scene.add(ringLine);
+      ringMeshes.push(ringLine); // index 0
+
+      // Vertical tick markers at each bucket position
       for (let i = 0; i < BUCKETS; i++) {
         const a = (i / BUCKETS) * Math.PI * 2;
-        const mat = new THREE.MeshBasicMaterial({ color: 0x1e293b });
-        const mesh = new THREE.Mesh(geo, mat);
-        mesh.position.set(
-          carCenter.x + Math.cos(a) * scanRadius,
-          0.25, // base at floor, top at 0.5m
-          carCenter.z + Math.sin(a) * scanRadius
+        const bx = carCenter.x + Math.cos(a) * scanRadius;
+        const bz = carCenter.z + Math.sin(a) * scanRadius;
+        const tick = new THREE.Line(
+          new THREE.BufferGeometry().setFromPoints([
+            new THREE.Vector3(bx, lastFloorY + 0.01, bz),
+            new THREE.Vector3(bx, lastFloorY + 0.32, bz),
+          ]),
+          new THREE.LineBasicMaterial({ color: 0x444444, transparent: true, opacity: 0.55 })
         );
-        scene.add(mesh);
-        ringMeshes.push(mesh);
+        scene.add(tick);
+        ringMeshes.push(tick); // indices 1..BUCKETS
       }
     }
 
     function updateRing() {
-      ringMeshes.forEach((mesh, i) => {
+      // ringMeshes[0] = main ring (constant)
+      // ringMeshes[1..BUCKETS] = tick lines
+      for (let i = 0; i < BUCKETS; i++) {
+        const tick = ringMeshes[i + 1];
+        if (!tick) continue;
         if (i === currentBucket) {
-          mesh.material.color.set(tooClose ? 0xef4444 : 0x34d399);
+          tick.material.color.set(tooClose ? 0xff3b30 : 0xffffff);
+          tick.material.opacity = 0.95;
         } else if (buckets[i]) {
-          mesh.material.color.set(0x0d9488);
+          tick.material.color.set(0x888888);
+          tick.material.opacity = 0.65;
         } else {
-          mesh.material.color.set(0x1e293b);
+          tick.material.color.set(0x444444);
+          tick.material.opacity = 0.5;
         }
-      });
+      }
     }
 
-    // ── Frame capture + combined API ─────────────────────────────────────────
+    // ── Frame capture ────────────────────────────────────────────────────────
 
     async function captureFrame(video, bIdx, angleDeg) {
       try {
         const w = video.videoWidth || 640, h = video.videoHeight || 480;
         const off = document.createElement('canvas');
         off.width = w; off.height = h;
-        const c = off.getContext('2d');
-        c.drawImage(video, 0, 0);
-        // Only capture once per bucket — first frame wins
+        off.getContext('2d').drawImage(video, 0, 0);
         if (!buckets[bIdx]) {
           const b64 = off.toDataURL('image/jpeg', 0.88).split(',')[1];
           const blob = await new Promise(res => off.toBlob(res, 'image/jpeg', 0.88));
@@ -260,41 +278,27 @@ export default function ImmersiveScan({ onCapture, onExit }) {
 
     function uploadAndAnalyze(b64, angleDeg, bIdx) {
       if (analysisInFlight) {
-        // Still upload/save even when analysis is in flight — just skip drawing result
-        scanFrame({ frameBase64: b64, angle: angleDeg, bucketIndex: bIdx, scanId })
-          .catch(e => console.warn('[ImmersiveScan] upload:', e.message));
+        scanFrame({ frameBase64: b64, angle: angleDeg, bucketIndex: bIdx, scanId }).catch(() => {});
         return;
       }
       analysisInFlight = true;
       scanFrame({ frameBase64: b64, angle: angleDeg, bucketIndex: bIdx, scanId })
-        .then(damage => {
-          drawDamage(damage);
-          if (dPanel) dPanel.visible = true;
-        })
+        .then(damage => { drawDamage(damage); if (dPanel) dPanel.visible = true; })
         .catch(e => console.warn('[ImmersiveScan] scanFrame:', e.message))
         .finally(() => { analysisInFlight = false; });
     }
 
-    function computeSharpness(d) {
-      let s = 0, s2 = 0, n = 0;
-      for (let i = 0; i < d.length; i += 20) {
-        const g = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
-        s += g; s2 += g * g; n++;
-      }
-      const m = s / n;
-      return s2 / n - m * m;
-    }
+    // ── Sticky notes — dark charcoal, compact ────────────────────────────────
 
     function makeStickyNote(pos) {
       const c = document.createElement('canvas');
-      c.width = 512; c.height = 320;
+      c.width = 480; c.height = 256;
       const tex = new THREE.CanvasTexture(c);
       const mesh = new THREE.Mesh(
-        new THREE.PlaneGeometry(0.32, 0.2),
+        new THREE.PlaneGeometry(0.20, 0.107),
         new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, side: THREE.DoubleSide })
       );
-      mesh.position.set(pos.x, pos.y + 0.12, pos.z);
-      // Face the viewer immediately at creation time
+      mesh.position.set(pos.x, pos.y + 0.1, pos.z);
       if (lastViewerT) mesh.lookAt(lastViewerT.x, mesh.position.y, lastViewerT.z);
       mesh._noteCanvas = c;
       mesh._noteTex = tex;
@@ -306,97 +310,108 @@ export default function ImmersiveScan({ onCapture, onExit }) {
     function updateStickyText(mesh, text) {
       const c = mesh._noteCanvas;
       const ctx = c.getContext('2d');
-      ctx.clearRect(0, 0, 512, 320);
-      ctx.fillStyle = '#fef08a';
-      rrect(ctx, 0, 0, 512, 320, 20); ctx.fill();
-      // Recording indicator bar
-      ctx.fillStyle = '#1c1917'; ctx.fillRect(0, 0, 512, 56);
-      rrect(ctx, 0, 0, 512, 56, 20); ctx.fillStyle = '#1c1917'; ctx.fill();
-      ctx.fillStyle = '#fbbf24'; ctx.font = 'bold 20px Arial'; ctx.textAlign = 'center';
-      ctx.fillText('🎙 Recording...', 256, 36);
-      ctx.fillStyle = '#1c1917';
-      ctx.font = '20px Arial'; ctx.textAlign = 'left';
+      ctx.clearRect(0, 0, 480, 256);
+      ctx.fillStyle = 'rgba(22,24,30,0.96)';
+      rrect(ctx, 0, 0, 480, 256, 14); ctx.fill();
+      ctx.strokeStyle = P_BORDER; ctx.lineWidth = 1;
+      rrect(ctx, 0, 0, 480, 256, 14); ctx.stroke();
+      // Header
+      ctx.fillStyle = ACCENT; ctx.beginPath(); ctx.arc(24, 30, 6, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = T1; ctx.font = 'bold 15px Arial'; ctx.textAlign = 'left';
+      ctx.fillText('Recording', 38, 35);
+      ctx.strokeStyle = P_BORDER; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(12, 48); ctx.lineTo(468, 48); ctx.stroke();
+      // Text
+      ctx.fillStyle = T2; ctx.font = '14px Arial'; ctx.textAlign = 'left';
       const words = text.split(' ');
-      let line = '', y = 90;
+      let line = '', y = 68;
       for (const w of words) {
         const test = line + w + ' ';
-        if (ctx.measureText(test).width > 460 && line) { ctx.fillText(line, 26, y); line = w + ' '; y += 28; }
+        if (ctx.measureText(test).width > 448 && line) { ctx.fillText(line.trim(), 14, y); line = w + ' '; y += 22; }
         else line = test;
+        if (y > 240) break;
       }
-      if (line) ctx.fillText(line.trim(), 26, y);
+      if (line) ctx.fillText(line.trim(), 14, y);
       mesh._noteTex.needsUpdate = true;
     }
 
     function updateStickyFinal(mesh, noteEntry, playing = false) {
       const c = mesh._noteCanvas;
       const ctx = c.getContext('2d');
-      ctx.clearRect(0, 0, 512, 320);
-      // Background
-      ctx.fillStyle = '#fef08a';
-      rrect(ctx, 0, 0, 512, 320, 20); ctx.fill();
-      // Top bar with play button
-      rrect(ctx, 0, 0, 512, 62, 20); ctx.fillStyle = '#1c1917'; ctx.fill();
-      ctx.fillRect(0, 42, 512, 20);
-      // Play button circle (UV: x<0.15, y>0.81 in Three.js UV space)
-      ctx.fillStyle = noteEntry.audioUrl ? (playing ? '#0d9488' : '#34d399') : '#6b7280';
-      ctx.beginPath(); ctx.arc(38, 31, 22, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = '#fff'; ctx.font = 'bold 18px Arial'; ctx.textAlign = 'center';
-      ctx.fillText(playing ? '⏸' : '▶', 39, 37);
-      // Waveform bars next to play button
-      ctx.fillStyle = '#34d399';
-      const bars = [8, 16, 24, 12, 20, 28, 14, 22, 18, 26, 10, 22, 16];
-      bars.forEach((h, i) => {
-        ctx.fillRect(72 + i * 28, 31 - h / 2, 12, h);
+      ctx.clearRect(0, 0, 480, 256);
+      ctx.fillStyle = 'rgba(22,24,30,0.96)';
+      rrect(ctx, 0, 0, 480, 256, 14); ctx.fill();
+      ctx.strokeStyle = P_BORDER; ctx.lineWidth = 1;
+      rrect(ctx, 0, 0, 480, 256, 14); ctx.stroke();
+      // Play button
+      ctx.fillStyle = playing ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.08)';
+      ctx.beginPath(); ctx.arc(26, 30, 18, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = T1; ctx.font = '12px Arial'; ctx.textAlign = 'center';
+      ctx.fillText(playing ? '⏸' : '▶', 27, 34);
+      // White waveform bars
+      ctx.fillStyle = 'rgba(255,255,255,0.5)';
+      [9,18,28,14,22,32,16,26,20,30,12,24,18].forEach((h, i) => {
+        ctx.fillRect(56 + i * 28, 30 - h/2, 10, h);
       });
-      // Transcribed text
-      ctx.fillStyle = '#1c1917'; ctx.font = 'bold 18px Arial'; ctx.textAlign = 'left';
+      // Separator
+      ctx.strokeStyle = P_BORDER; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(12, 54); ctx.lineTo(468, 54); ctx.stroke();
+      // Text
+      ctx.fillStyle = T2; ctx.font = '14px Arial'; ctx.textAlign = 'left';
       const text = noteEntry.text || '(no transcript)';
       const words = text.split(' ');
-      let line = '', y = 100;
+      let line = '', y = 74;
       for (const w of words) {
         const test = line + w + ' ';
-        if (ctx.measureText(test).width > 460 && line) { ctx.fillText(line, 26, y); line = w + ' '; y += 26; }
+        if (ctx.measureText(test).width > 448 && line) { ctx.fillText(line.trim(), 14, y); line = w + ' '; y += 22; }
         else line = test;
-        if (y > 220) { ctx.fillText(line.trim() + '…', 26, y); line = null; break; }
+        if (y > 220) { ctx.fillText(line.trim() + '…', 14, y); line = null; break; }
       }
-      if (line) ctx.fillText(line.trim(), 26, y);
-      // Bottom geo + timestamp bar
-      ctx.fillStyle = 'rgba(0,0,0,0.12)'; ctx.fillRect(0, 268, 512, 52);
-      ctx.fillStyle = '#78716c'; ctx.font = '14px Arial'; ctx.textAlign = 'center';
-      const geo = (noteEntry.lat != null && noteEntry.lng != null)
-        ? `${noteEntry.lat.toFixed(5)}°, ${noteEntry.lng.toFixed(5)}°`
-        : 'GPS unavailable';
-      ctx.fillText(geo, 256, 288);
-      ctx.fillText(noteEntry.timestamp || '', 256, 308);
+      if (line) ctx.fillText(line.trim(), 14, y);
+      // Timestamp
+      ctx.fillStyle = T3; ctx.font = '11px Arial'; ctx.textAlign = 'center';
+      ctx.fillText(noteEntry.timestamp || '', 240, 246);
       mesh._noteTex.needsUpdate = true;
     }
 
-    // Vosk WASM offline STT state
+    // ── Toolbar canvas (right side, head-locked) ──────────────────────────────
+
+    function makeToolbar() {
+      const c = document.createElement('canvas');
+      c.width = 72; c.height = 280;
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = 'rgba(22,24,30,0.88)';
+      rrect(ctx, 0, 0, 72, 280, 18); ctx.fill();
+      ctx.strokeStyle = P_BORDER; ctx.lineWidth = 1;
+      rrect(ctx, 0, 0, 72, 280, 18); ctx.stroke();
+      // Divider lines between icons
+      [[36, 60], [36, 130], [36, 200]].forEach(([x, y]) => {
+        ctx.strokeStyle = P_BORDER; ctx.beginPath(); ctx.moveTo(10, y); ctx.lineTo(62, y); ctx.stroke();
+      });
+      // Icon text (emoji fallback — simple but clear)
+      ctx.font = '22px Arial'; ctx.textAlign = 'center';
+      ['📷', '🎙', '⚡', '✓'].forEach((ic, i) => ctx.fillText(ic, 36, 48 + i * 70));
+      return c;
+    }
+
+    // ── Vosk WASM ────────────────────────────────────────────────────────────
+
     function rlog(msg, data) {
       console.log('[frontend]', msg, data ?? '');
       fetch('/api/log', { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ msg, data }) }).catch(() => {});
     }
 
-    let voskModel = null;
-    let voskRecognizer = null;
-    let audioContext = null;
-    let audioSource = null;
-    let audioProcessor = null;
-    let micStream = null;
-    let mediaRecorder = null;
-    let audioChunks = [];
-    let pendingGeo = null; // { lat, lng } fetched at note start
-    let activeNoteCallbacks = null; // { mesh, noteEntry }
+    let voskModel = null, voskRecognizer = null, audioContext = null;
+    let audioSource = null, audioProcessor = null, micStream = null;
+    let mediaRecorder = null, audioChunks = [];
+    let pendingGeo = null, activeNoteCallbacks = null;
 
     function saveNotes() {
       fetch('/api/notes', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ scanId, notes: voiceNotes }),
-      }).then(r => r.json())
-        .then(() => console.log('[vosk] notes saved, scan:', scanId))
-        .catch(e => console.warn('[vosk] notes save failed:', e));
+      }).catch(e => console.warn('[vosk] notes save failed:', e));
     }
 
     async function startVosk(meshSnapshot, noteSnapshot) {
@@ -405,53 +420,40 @@ export default function ImmersiveScan({ onCapture, onExit }) {
       if (meshSnapshot) updateStickyText(meshSnapshot, 'Loading...');
       drawVoice('Loading model...');
 
-      // 1. Load model once, cache in closure
       if (!voskModel) {
         try {
-          rlog('vosk loading model...');
           const { createModel } = await import('vosk-browser');
-          // Wrap in timeout — createModel hangs forever on 404 without rejecting
           voskModel = await Promise.race([
             createModel('/assets/vosk-model-small-en-us-0.15.tar.gz'),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('timeout after 30s — model file missing?')), 30000)),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 30000)),
           ]);
-          rlog('vosk model loaded OK');
         } catch (e) {
-          rlog('vosk model load FAILED', e.message);
-          if (meshSnapshot) updateStickyText(meshSnapshot, 'Model missing.\nAdd vosk-model-small-en-us-0.15.tar.gz to /assets/');
-          drawVoice('Voice unavailable: model file missing. Trigger to cancel.');
+          if (meshSnapshot) updateStickyText(meshSnapshot, 'Model file missing.');
+          drawVoice('Voice unavailable. Trigger to cancel.');
           return;
         }
       }
 
-      // 3. Open microphone
       try {
         micStream = await navigator.mediaDevices.getUserMedia({
-          audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
-          video: false,
+          audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true }, video: false,
         });
-        rlog('vosk mic opened');
-        // Start MediaRecorder to capture audio blob for playback
         audioChunks = [];
         try {
           mediaRecorder = new MediaRecorder(micStream);
           mediaRecorder.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
           mediaRecorder.start();
-        } catch (_e) { mediaRecorder = null; }
+        } catch (_) { mediaRecorder = null; }
       } catch (e) {
-        rlog('vosk mic denied', e.message);
         if (meshSnapshot) updateStickyText(meshSnapshot, 'Mic denied.');
         drawVoice('Mic denied — trigger to cancel');
         return;
       }
 
-      // 3. Web Audio pipeline
       audioContext = new AudioContext();
       await audioContext.resume();
       audioSource = audioContext.createMediaStreamSource(micStream);
       audioProcessor = audioContext.createScriptProcessor(4096, 1, 1);
-
-      // 4. Create recognizer at the actual hardware sample rate
       voskRecognizer = new voskModel.KaldiRecognizer(audioContext.sampleRate);
 
       voskRecognizer.on('result', (msg) => {
@@ -473,18 +475,11 @@ export default function ImmersiveScan({ onCapture, onExit }) {
         drawVoice(display);
       });
 
-      audioProcessor.onaudioprocess = (e) => {
-        if (!voskRecognizer) return;
-        voskRecognizer.acceptWaveform(e.inputBuffer);
-      };
-
-      // Must connect to destination for onaudioprocess to fire
+      audioProcessor.onaudioprocess = (e) => { if (voskRecognizer) voskRecognizer.acceptWaveform(e.inputBuffer); };
       audioSource.connect(audioProcessor);
       audioProcessor.connect(audioContext.destination);
-
       if (meshSnapshot) updateStickyText(meshSnapshot, 'Listening...');
       drawVoice('Recording... pull trigger to save');
-      rlog('vosk started', { sampleRate: audioContext.sampleRate });
     }
 
     function stopVoskAudio() {
@@ -496,14 +491,8 @@ export default function ImmersiveScan({ onCapture, onExit }) {
     }
 
     function stopVosk() {
-      rlog('stopVosk called', { hasRecognizer: !!voskRecognizer, hasCallbacks: !!activeNoteCallbacks });
-      if (voskRecognizer) {
-        try { voskRecognizer.free(); } catch (_) {}
-        voskRecognizer = null;
-      }
-
+      if (voskRecognizer) { try { voskRecognizer.free(); } catch (_) {} voskRecognizer = null; }
       const text = activeNoteCallbacks?.noteEntry?.text?.trim() ?? '';
-      rlog('stopVosk saving text', text);
 
       if (activeNoteCallbacks) {
         const { mesh, noteEntry } = activeNoteCallbacks;
@@ -519,25 +508,23 @@ export default function ImmersiveScan({ onCapture, onExit }) {
 
         if (mediaRecorder && mediaRecorder.state !== 'inactive') {
           mediaRecorder.onstop = () => {
-            const blob = new Blob(audioChunks, { type: 'audio/webm' });
-            noteEntry.audioUrl = URL.createObjectURL(blob);
+            noteEntry.audioUrl = URL.createObjectURL(new Blob(audioChunks, { type: 'audio/webm' }));
             mediaRecorder = null;
             finalize();
           };
           mediaRecorder.stop();
         } else {
-          noteEntry.audioUrl = null;
-          mediaRecorder = null;
-          finalize();
+          noteEntry.audioUrl = null; mediaRecorder = null; finalize();
         }
-
         if (text) saveNotes();
       }
 
       stopVoskAudio();
       activeNoteCallbacks = null;
       annotating = false; pendingNotePos = null; activeStickyMesh = null;
-      vPanel.visible = false; drawStatus();
+      vPanel.visible = false;
+      mPanel.visible = true;
+      drawStatus();
     }
 
     function fallbackFloorPoint(dist) {
@@ -547,77 +534,48 @@ export default function ImmersiveScan({ onCapture, onExit }) {
 
     function recomputeCarGeometry(scene) {
       const pts = wheelPoints;
-      carCenter = {
-        x: pts.reduce((s, p) => s + p.x, 0) / 4,
-        z: pts.reduce((s, p) => s + p.z, 0) / 4,
-      };
-      const frontMidX = (pts[0].x + pts[1].x) / 2, frontMidZ = (pts[0].z + pts[1].z) / 2;
-      const rearMidX  = (pts[2].x + pts[3].x) / 2, rearMidZ  = (pts[2].z + pts[3].z) / 2;
-      carLength = Math.max(Math.sqrt((frontMidX - rearMidX) ** 2 + (frontMidZ - rearMidZ) ** 2), 2);
+      carCenter = { x: pts.reduce((s, p) => s + p.x, 0) / 4, z: pts.reduce((s, p) => s + p.z, 0) / 4 };
+      const fmx = (pts[0].x + pts[1].x) / 2, fmz = (pts[0].z + pts[1].z) / 2;
+      const rmx = (pts[2].x + pts[3].x) / 2, rmz = (pts[2].z + pts[3].z) / 2;
+      carLength = Math.max(Math.sqrt((fmx - rmx) ** 2 + (fmz - rmz) ** 2), 2);
       const carWidth = Math.max(
         Math.sqrt((pts[0].x - pts[1].x) ** 2 + (pts[0].z - pts[1].z) ** 2),
-        Math.sqrt((pts[2].x - pts[3].x) ** 2 + (pts[2].z - pts[3].z) ** 2),
-        1
+        Math.sqrt((pts[2].x - pts[3].x) ** 2 + (pts[2].z - pts[3].z) ** 2), 1
       );
       scanRadius = Math.sqrt((carLength / 2) ** 2 + (carWidth / 2) ** 2) + 0.3;
-      // Remove existing ring meshes and rebuild
-      ringMeshes.forEach(m => scene.remove(m));
-      ringMeshes = [];
       createScanRing(scene);
     }
 
-    // Returns world-space point where the controller ray hits the car bounding box, or null
-    function rayBoxIntersect(poses) {
-      if (!carCenter) return null;
-      const box = new THREE.Box3(
-        new THREE.Vector3(carCenter.x - 1.1, lastFloorY,       carCenter.z - carLength / 2),
-        new THREE.Vector3(carCenter.x + 1.1, lastFloorY + 1.8, carCenter.z + carLength / 2)
-      );
+    // Proximity check for grabbing floor disc markers
+    function rayDiscHit(poses, discs) {
       for (const p of poses) {
-        const origin = new THREE.Vector3(p.x, p.y, p.z);
-        const quat   = new THREE.Quaternion(p.qx, p.qy, p.qz, p.qw);
-        const dir    = new THREE.Vector3(0, 0, -1).applyQuaternion(quat).normalize();
-        const ray    = new THREE.Ray(origin, dir);
-        const hit    = new THREE.Vector3();
-        if (ray.intersectBox(box, hit)) return { x: hit.x, y: hit.y, z: hit.z };
-      }
-      return null;
-    }
-
-    // Returns index of the wheel sphere whose center is within 0.25m of the controller ray, or -1
-    function raySphereHit(poses, spheres) {
-      for (const p of poses) {
-        const quat = new THREE.Quaternion(p.qx, p.qy, p.qz, p.qw);
-        const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(quat);
-        const origin = new THREE.Vector3(p.x, p.y, p.z);
-        for (let i = 0; i < spheres.length; i++) {
-          if (!spheres[i].visible) continue;
-          const toSphere = spheres[i].position.clone().sub(origin);
-          const proj = toSphere.dot(dir);
-          if (proj < 0) continue;
-          const dist = origin.clone().addScaledVector(dir, proj).distanceTo(spheres[i].position);
-          if (dist < 0.25) return i;
+        for (let i = 0; i < discs.length; i++) {
+          if (!discs[i].visible) continue;
+          const dx = p.x - discs[i].position.x;
+          const dz = p.z - discs[i].position.z;
+          if (Math.sqrt(dx * dx + dz * dz) < 0.35 && Math.abs(p.y - discs[i].position.y) < 0.8) return i;
         }
+      }
+      // Raycaster fallback for aiming at disc from above/side
+      for (const p of poses) {
+        const origin = new THREE.Vector3(p.x, p.y, p.z);
+        const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(new THREE.Quaternion(p.qx, p.qy, p.qz, p.qw)).normalize();
+        const hits = new THREE.Raycaster(origin, dir).intersectObjects(discs.filter(d => d.visible));
+        if (hits.length > 0) return discs.findIndex(d => d === hits[0].object);
       }
       return -1;
     }
 
     async function start() {
-      // Fetch geolocation once before XR session starts — permission dialogs during XR exit the session on Quest
-      // Use watchPosition so we get the best available fix; first result wins
       if (navigator.geolocation) {
         let watchId = null;
         pendingGeo = await new Promise(resolve => {
-          const done = (geo) => {
-            if (watchId != null) navigator.geolocation.clearWatch(watchId);
-            resolve(geo);
-          };
+          const done = (geo) => { if (watchId != null) navigator.geolocation.clearWatch(watchId); resolve(geo); };
           watchId = navigator.geolocation.watchPosition(
             p => done({ lat: p.coords.latitude, lng: p.coords.longitude }),
             () => done(null),
             { timeout: 8000, maximumAge: 60000, enableHighAccuracy: true }
           );
-          // Hard cap — don't block XR session start indefinitely
           setTimeout(() => done(pendingGeo), 8000);
         });
       }
@@ -631,8 +589,6 @@ export default function ImmersiveScan({ onCapture, onExit }) {
       } catch (e) { console.warn('[ImmersiveScan] camera:', e.message); }
 
       try {
-        // unbounded disables Guardian boundary warnings without changing the coordinate system.
-        // local-floor keeps y=0 at the physical floor, which rayFloorIntersect depends on.
         session = await navigator.xr.requestSession('immersive-ar', {
           requiredFeatures: ['local-floor', 'unbounded'],
           optionalFeatures: ['hit-test', 'hand-tracking'],
@@ -651,116 +607,117 @@ export default function ImmersiveScan({ onCapture, onExit }) {
       refSpace = renderer.xr.getReferenceSpace();
       const viewerSpace = await session.requestReferenceSpace('viewer');
       try { hitTestSource = await session.requestHitTestSource({ space: viewerSpace }); }
-      catch (e) { console.warn('[ImmersiveScan] no hit-test, using fallback'); }
+      catch (_) { console.warn('[ImmersiveScan] no hit-test'); }
 
       scene = new THREE.Scene();
 
-      // Head-locked status panel
+      // Status panel
       mTex = new THREE.CanvasTexture(mCanvas);
-      const mPanel = new THREE.Mesh(
+      mPanel = new THREE.Mesh(
         new THREE.PlaneGeometry(0.44, 0.22),
         new THREE.MeshBasicMaterial({ map: mTex, transparent: true, depthWrite: false })
       );
       scene.add(mPanel);
       drawSetup(0);
 
-      // Voice panel
+      // Voice panel (replaces status while recording)
       vTex = new THREE.CanvasTexture(vCanvas);
       vPanel = new THREE.Mesh(
-        new THREE.PlaneGeometry(0.44, 0.26),
+        new THREE.PlaneGeometry(0.44, 0.242),
         new THREE.MeshBasicMaterial({ map: vTex, transparent: true, depthWrite: false })
       );
       vPanel.visible = false;
       scene.add(vPanel);
 
-      // Exit button (head-locked, top-right corner)
-      const exitCanvas = document.createElement('canvas');
-      exitCanvas.width = 256; exitCanvas.height = 80;
-      const exitCtx = exitCanvas.getContext('2d');
-      exitCtx.fillStyle = '#ef4444';
-      rrect(exitCtx, 0, 0, 256, 80, 16); exitCtx.fill();
-      exitCtx.fillStyle = 'white'; exitCtx.font = 'bold 28px Arial'; exitCtx.textAlign = 'center';
-      exitCtx.fillText('✕  Exit Scan', 128, 50);
-      const exitTex = new THREE.CanvasTexture(exitCanvas);
-      const exitBtn = new THREE.Mesh(
-        new THREE.PlaneGeometry(0.18, 0.056),
-        new THREE.MeshBasicMaterial({ map: exitTex, transparent: true, depthWrite: false })
-      );
-      exitBtn.visible = false;
-      scene.add(exitBtn);
-
-      // Confirm wheel placement button
+      // Confirm button
       const confirmCanvas = document.createElement('canvas');
-      confirmCanvas.width = 512; confirmCanvas.height = 112;
-      const confirmCtx = confirmCanvas.getContext('2d');
-      confirmCtx.fillStyle = '#22c55e';
-      rrect(confirmCtx, 0, 0, 512, 112, 24); confirmCtx.fill();
-      confirmCtx.fillStyle = 'white'; confirmCtx.font = 'bold 36px Arial'; confirmCtx.textAlign = 'center';
-      confirmCtx.fillText('✓  Complete Wheel Placement', 256, 66);
-      const confirmTex = new THREE.CanvasTexture(confirmCanvas);
+      confirmCanvas.width = 512; confirmCanvas.height = 96;
+      const cCtx = confirmCanvas.getContext('2d');
+      cCtx.fillStyle = 'rgba(22,24,30,0.94)';
+      rrect(cCtx, 0, 0, 512, 96, 20); cCtx.fill();
+      cCtx.strokeStyle = P_BORDER; cCtx.lineWidth = 1.5;
+      rrect(cCtx, 0, 0, 512, 96, 20); cCtx.stroke();
+      cCtx.fillStyle = '#1a3ecf';
+      rrect(cCtx, 14, 12, 484, 72, 14); cCtx.fill();
+      cCtx.fillStyle = T1; cCtx.font = 'bold 26px Arial'; cCtx.textAlign = 'center';
+      cCtx.fillText('Confirm Wheel Placement', 256, 56);
       const confirmBtn = new THREE.Mesh(
-        new THREE.PlaneGeometry(0.42, 0.092),
-        new THREE.MeshBasicMaterial({ map: confirmTex, transparent: true, depthWrite: false })
+        new THREE.PlaneGeometry(0.42, 0.08),
+        new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(confirmCanvas), transparent: true, depthWrite: false })
       );
       confirmBtn.visible = false;
       scene.add(confirmBtn);
 
-      // Damage analysis panel
+      // Damage analysis panel (left side)
       dTex = new THREE.CanvasTexture(dCanvas);
       dPanel = new THREE.Mesh(
-        new THREE.PlaneGeometry(0.44, 0.31),
+        new THREE.PlaneGeometry(0.42, 0.295),
         new THREE.MeshBasicMaterial({ map: dTex, transparent: true, depthWrite: false })
       );
       dPanel.visible = false;
       scene.add(dPanel);
 
-      // Wheel marker spheres
-      const wheelSpheres = WHEEL_COLORS.map(col => {
+      // Complete scan button (bottom center)
+      const exitCanvas = document.createElement('canvas');
+      exitCanvas.width = 512; exitCanvas.height = 96;
+      const eCtx = exitCanvas.getContext('2d');
+      eCtx.fillStyle = 'rgba(22,24,30,0.92)';
+      rrect(eCtx, 0, 0, 512, 96, 20); eCtx.fill();
+      eCtx.strokeStyle = P_BORDER; eCtx.lineWidth = 1.5;
+      rrect(eCtx, 0, 0, 512, 96, 20); eCtx.stroke();
+      eCtx.fillStyle = T1; eCtx.font = 'bold 22px Arial'; eCtx.textAlign = 'center';
+      eCtx.fillText('Complete Scan', 256, 54);
+      const exitBtn = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.34, 0.065),
+        new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(exitCanvas), transparent: true, depthWrite: false })
+      );
+      exitBtn.visible = false;
+      scene.add(exitBtn);
+
+      // Toolbar (right side)
+      const toolbarTex = new THREE.CanvasTexture(makeToolbar());
+      const toolbarPanel = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.058, 0.225),
+        new THREE.MeshBasicMaterial({ map: toolbarTex, transparent: true, depthWrite: false })
+      );
+      scene.add(toolbarPanel);
+
+      // Wheel flat disc markers — blue, on floor (matching design 9.1)
+      const wheelDiscs = WHEEL_LABELS.map(() => {
         const m = new THREE.Mesh(
-          new THREE.SphereGeometry(0.08, 16, 16),
-          new THREE.MeshBasicMaterial({ color: col })
+          new THREE.CircleGeometry(0.095, 32),
+          new THREE.MeshBasicMaterial({ color: 0x1a3ecf, transparent: true, opacity: 0.75, side: THREE.DoubleSide })
         );
+        m.rotation.x = -Math.PI / 2; // lay flat on floor
         m.visible = false;
         scene.add(m);
         return m;
       });
 
-      // Floor cursor — ring that follows ray-floor intersection during setup
+      // Floor cursor ring
       const cursor = new THREE.Mesh(
-        new THREE.RingGeometry(0.07, 0.12, 32),
-        new THREE.MeshBasicMaterial({ color: 0x34d399, side: THREE.DoubleSide, transparent: true, opacity: 0.85 })
+        new THREE.RingGeometry(0.065, 0.1, 40),
+        new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide, transparent: true, opacity: 0.6 })
       );
       cursor.rotation.x = -Math.PI / 2;
       cursor.visible = false;
       scene.add(cursor);
 
-      // Note placement preview — small floating yellow square shown during scanning
-      // so the user can see exactly where (and how far) the note will land before triggering
-      const notePreviewCanvas = document.createElement('canvas');
-      notePreviewCanvas.width = 128; notePreviewCanvas.height = 128;
-      const npc = notePreviewCanvas.getContext('2d');
-      npc.fillStyle = '#fef08a';
-      npc.beginPath(); npc.roundRect(4, 4, 120, 120, 16); npc.fill();
-      npc.strokeStyle = '#ca8a04'; npc.lineWidth = 4;
-      npc.beginPath(); npc.roundRect(4, 4, 120, 120, 16); npc.stroke();
-      npc.fillStyle = '#ca8a04'; npc.font = 'bold 52px Arial'; npc.textAlign = 'center'; npc.textBaseline = 'middle';
-      npc.fillText('🎙', 64, 64);
-      const notePreviewTex = new THREE.CanvasTexture(notePreviewCanvas);
+      // Note placement preview dot
       const notePreview = new THREE.Mesh(
-        new THREE.PlaneGeometry(0.08, 0.08),
-        new THREE.MeshBasicMaterial({ map: notePreviewTex, transparent: true, depthWrite: false, side: THREE.DoubleSide })
+        new THREE.CircleGeometry(0.04, 24),
+        new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.55, side: THREE.DoubleSide })
       );
+      notePreview.rotation.x = -Math.PI / 2;
       notePreview.visible = false;
       scene.add(notePreview);
 
-      // Controller rays
+      // Controller rays — subtle white
       const rayGeo = new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(0, 0, 0),
-        new THREE.Vector3(0, 0, -3),
+        new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -3),
       ]);
-      const rayMat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.7 });
-      const leftRay = new THREE.Line(rayGeo, rayMat.clone());
-      const rightRay = new THREE.Line(rayGeo, rayMat.clone());
+      const leftRay  = new THREE.Line(rayGeo, new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.4 }));
+      const rightRay = new THREE.Line(rayGeo, new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.4 }));
       leftRay.visible = false; rightRay.visible = false;
       scene.add(leftRay, rightRay);
 
@@ -776,55 +733,39 @@ export default function ImmersiveScan({ onCapture, onExit }) {
         const { x: tx, y: ty, z: tz } = vp.transform.position;
         const q = vp.transform.orientation;
         const quat = new THREE.Quaternion(q.x, q.y, q.z, q.w);
-        const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(quat);
+        const fwd   = new THREE.Vector3(0, 0, -1).applyQuaternion(quat);
+        const right = new THREE.Vector3(1, 0, 0).applyQuaternion(quat);
+        const left  = new THREE.Vector3(-1, 0, 0).applyQuaternion(quat);
 
-        lastViewerT = { x: tx, y: ty, z: tz };
+        lastViewerT   = { x: tx, y: ty, z: tz };
         lastViewerFwd = { x: fwd.x, y: fwd.y, z: fwd.z };
 
-        // Head-lock status panel (top of view)
-        mPanel.position.set(tx + fwd.x * 0.9, ty + 0.08 + fwd.y * 0.9, tz + fwd.z * 0.9);
-        mPanel.quaternion.copy(quat);
+        const D = 0.9;
 
-        // Voice panel (right of status panel)
+        if (mPanel.visible) {
+          mPanel.position.set(tx + fwd.x*D, ty + 0.09 + fwd.y*D, tz + fwd.z*D);
+          mPanel.quaternion.copy(quat);
+        }
         if (vPanel.visible) {
-          const right = new THREE.Vector3(1, 0, 0).applyQuaternion(quat);
-          vPanel.position.set(
-            tx + fwd.x * 0.88 + right.x * 0.34,
-            ty - 0.04 + fwd.y * 0.88,
-            tz + fwd.z * 0.88 + right.z * 0.34
-          );
+          vPanel.position.set(tx + fwd.x*D, ty + 0.05 + fwd.y*D, tz + fwd.z*D);
           vPanel.quaternion.copy(quat);
         }
-
-        // Exit button (top-right, always visible)
-        {
-          const right = new THREE.Vector3(1, 0, 0).applyQuaternion(quat);
-          exitBtn.position.set(
-            tx + fwd.x * 0.88 + right.x * 0.22,
-            ty + 0.19 + fwd.y * 0.88,
-            tz + fwd.z * 0.88 + right.z * 0.22
-          );
-          exitBtn.quaternion.copy(quat);
-        }
-
-        // Confirm button — centered below status panel during 'confirm' phase
-        if (confirmBtn.visible) {
-          confirmBtn.position.set(tx + fwd.x * 0.9, ty - 0.20 + fwd.y * 0.9, tz + fwd.z * 0.9);
-          confirmBtn.quaternion.copy(quat);
-        }
-
-        // Damage panel (below status panel)
         if (dPanel.visible) {
-          const left = new THREE.Vector3(-1, 0, 0).applyQuaternion(quat);
-          dPanel.position.set(
-            tx + fwd.x * 0.88 + left.x * 0.34,
-            ty - 0.04 + fwd.y * 0.88,
-            tz + fwd.z * 0.88 + left.z * 0.34
-          );
+          dPanel.position.set(tx + fwd.x*D + left.x*0.52, ty - 0.02 + fwd.y*D, tz + fwd.z*D + left.z*0.52);
           dPanel.quaternion.copy(quat);
         }
+        if (confirmBtn.visible) {
+          confirmBtn.position.set(tx + fwd.x*D, ty - 0.18 + fwd.y*D, tz + fwd.z*D);
+          confirmBtn.quaternion.copy(quat);
+        }
+        if (exitBtn.visible) {
+          exitBtn.position.set(tx + fwd.x*D, ty - 0.24 + fwd.y*D, tz + fwd.z*D);
+          exitBtn.quaternion.copy(quat);
+        }
+        toolbarPanel.position.set(tx + fwd.x*D + right.x*0.44, ty + fwd.y*D, tz + fwd.z*D + right.z*0.44);
+        toolbarPanel.quaternion.copy(quat);
 
-        // Controller rays — update pose cache for floor intersection on trigger
+        // Controller poses
         leftRay.visible = false; rightRay.visible = false;
         lastControllerPoses = [];
         for (const src of session.inputSources) {
@@ -836,44 +777,25 @@ export default function ImmersiveScan({ onCapture, onExit }) {
           ray.position.set(rt.x, rt.y, rt.z);
           ray.quaternion.set(rq.x, rq.y, rq.z, rq.w);
           ray.visible = true;
-          // Cache position + orientation so selectend can compute floor intersection
           lastControllerPoses.push({ x: rt.x, y: rt.y, z: rt.z, qx: rq.x, qy: rq.y, qz: rq.z, qw: rq.w });
         }
 
-        // Hit-test during setup — track real floor Y in current reference space
-        if (hitTestSource && WHEEL_PHASES.includes(phase)) {
+        if (hitTestSource && (WHEEL_PHASES.includes(phase) || phase === 'confirm')) {
           const hits = frame.getHitTestResults(hitTestSource);
           if (hits.length > 0) lastFloorY = hits[0].getPose(refSpace).transform.position.y;
         }
 
-        // Floor cursor — follows ray intersection during setup/confirm so user sees landing point
         if (WHEEL_PHASES.includes(phase)) {
           const floorPt = rayFloorIntersect(lastControllerPoses, lastFloorY);
-          if (floorPt) {
-            cursor.position.set(floorPt.x, lastFloorY + 0.01, floorPt.z);
-            cursor.visible = true;
-          } else {
-            cursor.visible = false;
-          }
-        } else {
-          cursor.visible = false;
-        }
+          if (floorPt) { cursor.position.set(floorPt.x, lastFloorY + 0.01, floorPt.z); cursor.visible = true; }
+          else cursor.visible = false;
+        } else cursor.visible = false;
 
-        // Grabbed sphere follows ray-floor intersection (only when not locked)
-        if (grabbedSphereIdx !== -1 && !wheelsLocked) {
+        if (grabbedDiscIdx !== -1 && !wheelsLocked) {
           const floorPt = rayFloorIntersect(lastControllerPoses, lastFloorY);
-          if (floorPt) {
-            wheelSpheres[grabbedSphereIdx].position.set(floorPt.x, lastFloorY + 0.08, floorPt.z);
-          }
+          if (floorPt) wheelDiscs[grabbedDiscIdx].position.set(floorPt.x, lastFloorY + 0.005, floorPt.z);
         }
 
-        // Hit-test during confirm phase too — update floor Y
-        if (hitTestSource && phase === 'confirm') {
-          const hits = frame.getHitTestResults(hitTestSource);
-          if (hits.length > 0) lastFloorY = hits[0].getPose(refSpace).transform.position.y;
-        }
-
-        // Scanning logic
         if (phase === 'scanning') {
           const { x: cx, z: cz } = carCenter;
           const distFromCenter = Math.sqrt((tx - cx) ** 2 + (tz - cz) ** 2);
@@ -888,46 +810,41 @@ export default function ImmersiveScan({ onCapture, onExit }) {
           }
 
           if (buckets.filter(Boolean).length >= MIN_BUCKETS_COMPLETE) exitBtn.visible = true;
-
           if (time - lastRingUpdate > 100) { lastRingUpdate = time; updateRing(); }
           if (time - lastPanelDraw > 150) { lastPanelDraw = time; drawStatus(); }
 
-          // Only the active (in-progress) note tracks the viewer — saved notes stay fixed
           if (activeStickyMesh) activeStickyMesh.lookAt(tx, activeStickyMesh.position.y, tz);
 
-          // Grip held → compute and show note placement preview
+          // Note placement preview
           if (gripHeld && !annotating && grippedStickyIdx === -1 && lastControllerPoses.length > 0) {
-            let previewPos = null;
             const floorHit = rayFloorIntersect(lastControllerPoses, lastFloorY);
+            let previewPos = null;
             if (floorHit && carCenter) {
               const dx = floorHit.x - carCenter.x, dz = floorHit.z - carCenter.z;
-              if (Math.sqrt(dx * dx + dz * dz) <= scanRadius + 0.6) {
-                const noteY = lastViewerT ? lastViewerT.y - 0.5 : lastFloorY + 0.6;
-                previewPos = { x: floorHit.x, y: Math.max(noteY, lastFloorY + 0.3), z: floorHit.z };
+              if (Math.sqrt(dx*dx + dz*dz) <= scanRadius + 0.8) {
+                previewPos = { x: floorHit.x, y: lastFloorY + 0.005, z: floorHit.z };
               }
             }
-            if (!previewPos) {
+            if (!previewPos && lastControllerPoses.length > 0) {
               const p = lastControllerPoses[0];
-              const dir = new THREE.Vector3(0, 0, -1)
-                .applyQuaternion(new THREE.Quaternion(p.qx, p.qy, p.qz, p.qw)).normalize();
-              previewPos = { x: p.x + dir.x * 1.5, y: p.y + dir.y * 1.5, z: p.z + dir.z * 1.5 };
+              const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(new THREE.Quaternion(p.qx, p.qy, p.qz, p.qw)).normalize();
+              // Place note 0.8m ahead of the controller — closer than before
+              previewPos = { x: p.x + dir.x * 0.8, y: lastFloorY + 0.005, z: p.z + dir.z * 0.8 };
             }
             gripPreviewPos = previewPos;
-            notePreview.position.set(previewPos.x, previewPos.y, previewPos.z);
-            notePreview.quaternion.copy(quat);
-            notePreview.visible = true;
+            if (previewPos) {
+              notePreview.position.set(previewPos.x, previewPos.y, previewPos.z);
+              notePreview.visible = true;
+            }
           } else {
             notePreview.visible = false;
           }
 
-          // Grip dragging a saved sticky note — follow controller ray at 1m
+          // Drag grabbed sticky
           if (grippedStickyIdx !== -1 && lastControllerPoses.length > 0) {
             const p = lastControllerPoses[0];
-            const dir = new THREE.Vector3(0, 0, -1)
-              .applyQuaternion(new THREE.Quaternion(p.qx, p.qy, p.qz, p.qw)).normalize();
-            stickyNotes[grippedStickyIdx].mesh.position.set(
-              p.x + dir.x * 1.0, p.y + dir.y * 1.0, p.z + dir.z * 1.0
-            );
+            const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(new THREE.Quaternion(p.qx, p.qy, p.qz, p.qw)).normalize();
+            stickyNotes[grippedStickyIdx].mesh.position.set(p.x + dir.x*0.9, p.y + dir.y*0.9, p.z + dir.z*0.9);
           }
         } else {
           notePreview.visible = false;
@@ -936,45 +853,35 @@ export default function ImmersiveScan({ onCapture, onExit }) {
         renderer.render(scene, xrCam);
       });
 
-      // Grab start — if ray is near a placed sphere, grab it instead of placing a new one
       session.addEventListener('selectstart', () => {
         if (phase === 'complete' || wheelsLocked) return;
-        const hitIdx = raySphereHit(lastControllerPoses, wheelSpheres);
+        const hitIdx = rayDiscHit(lastControllerPoses, wheelDiscs);
         if (hitIdx !== -1) {
-          grabbedSphereIdx = hitIdx;
-          wheelSpheres[hitIdx].material.color.set(0xffffff); // flash white while held
+          grabbedDiscIdx = hitIdx;
+          wheelDiscs[hitIdx].material.opacity = 1.0; // brighten while held
         }
       });
 
-      // Trigger handler
       session.addEventListener('selectend', () => {
-        console.log('[trigger] selectend phase=', phase, 'annotating=', annotating, 'tooClose=', tooClose, 'controllers=', lastControllerPoses.length);
         if (phase === 'complete') return;
 
-        // Confirm placement button — lock wheels and start scan
         if (phase === 'confirm') {
           for (const p of lastControllerPoses) {
             const origin = new THREE.Vector3(p.x, p.y, p.z);
             const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(new THREE.Quaternion(p.qx, p.qy, p.qz, p.qw)).normalize();
             if (new THREE.Raycaster(origin, dir).intersectObject(confirmBtn).length > 0) {
-              wheelsLocked = true;
-              confirmBtn.visible = false;
-              recomputeCarGeometry(scene);
-              phase = 'scanning';
-              drawStatus();
+              wheelsLocked = true; confirmBtn.visible = false;
+              recomputeCarGeometry(scene); phase = 'scanning'; drawStatus();
               return;
             }
           }
-          // In confirm phase, taps that miss the button can still move spheres
-          // Fall through to grab logic below
         }
 
-        // Exit button hit check
+        // Complete scan button
         for (const p of lastControllerPoses) {
           const origin = new THREE.Vector3(p.x, p.y, p.z);
           const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(new THREE.Quaternion(p.qx, p.qy, p.qz, p.qw)).normalize();
-          const raycaster = new THREE.Raycaster(origin, dir);
-          if (raycaster.intersectObject(exitBtn).length > 0) {
+          if (new THREE.Raycaster(origin, dir).intersectObject(exitBtn).length > 0) {
             phase = 'complete';
             fetch('/api/notes', { method: 'POST', headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ scanId, notes: voiceNotes }) }).catch(() => {});
@@ -984,48 +891,26 @@ export default function ImmersiveScan({ onCapture, onExit }) {
           }
         }
 
-        // Release grab — update wheel point and recompute car geometry
-        if (grabbedSphereIdx !== -1) {
-          const sp = wheelSpheres[grabbedSphereIdx].position;
-          wheelPoints[grabbedSphereIdx] = { x: sp.x, y: lastFloorY, z: sp.z };
-          wheelSpheres[grabbedSphereIdx].material.color.set(WHEEL_COLORS[grabbedSphereIdx]);
-          grabbedSphereIdx = -1;
-          // If all 4 placed and in scanning, recompute ring
+        // Release grabbed disc
+        if (grabbedDiscIdx !== -1) {
+          const dp = wheelDiscs[grabbedDiscIdx].position;
+          wheelPoints[grabbedDiscIdx] = { x: dp.x, y: lastFloorY, z: dp.z };
+          wheelDiscs[grabbedDiscIdx].material.opacity = 0.75;
+          grabbedDiscIdx = -1;
           if (wheelPoints.every(Boolean) && phase === 'scanning') recomputeCarGeometry(scene);
           return;
         }
 
         const phaseIdx = WHEEL_PHASES.indexOf(phase);
-
         if (phaseIdx !== -1) {
-          // Primary: intersect the controller ray with the floor plane (y=0)
-          // This places the sphere exactly where the ray beam touches the ground.
           const pt = rayFloorIntersect(lastControllerPoses, lastFloorY) ?? fallbackFloorPoint(3);
-
-          // Debug: log viewer Y, controller Y, floor Y, and computed intersection
-          console.log('[ImmersiveScan] placement debug', {
-            viewerY: lastViewerT?.y?.toFixed(3),
-            lastFloorY: lastFloorY?.toFixed(3),
-            controllers: lastControllerPoses.map(p => ({ y: p.y.toFixed(3), qy: p.qy.toFixed(3) })),
-            intersectPt: pt ? { x: pt.x.toFixed(3), y: pt.y.toFixed(3), z: pt.z.toFixed(3) } : null,
-          });
-
           if (pt) {
-            lastDebugPt = pt;
             wheelPoints[phaseIdx] = { x: pt.x, y: pt.y, z: pt.z };
-            wheelSpheres[phaseIdx].position.set(pt.x, pt.y + 0.08, pt.z);
-            wheelSpheres[phaseIdx].visible = true;
-
+            wheelDiscs[phaseIdx].position.set(pt.x, lastFloorY + 0.005, pt.z);
+            wheelDiscs[phaseIdx].visible = true;
             const nextIdx = phaseIdx + 1;
-            if (nextIdx < WHEEL_PHASES.length) {
-              phase = WHEEL_PHASES[nextIdx];
-              drawSetup(nextIdx);
-            } else {
-              // All 4 wheels placed — go to confirm phase before starting scan
-              phase = 'confirm';
-              drawConfirm();
-              confirmBtn.visible = true;
-            }
+            if (nextIdx < WHEEL_PHASES.length) { phase = WHEEL_PHASES[nextIdx]; drawSetup(nextIdx); }
+            else { phase = 'confirm'; drawConfirm(); confirmBtn.visible = true; }
           }
           return;
         }
@@ -1033,90 +918,81 @@ export default function ImmersiveScan({ onCapture, onExit }) {
         if (phase === 'scanning') {
           if (annotating) { stopVosk(); return; }
 
-          // Trigger = play/pause a saved sticky note (aim at its play button)
-          if (stickyNotes.length > 0) {
-            for (const p of lastControllerPoses) {
-              const origin = new THREE.Vector3(p.x, p.y, p.z);
-              const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(new THREE.Quaternion(p.qx, p.qy, p.qz, p.qw)).normalize();
-              const hits = new THREE.Raycaster(origin, dir).intersectObjects(stickyNotes.map(n => n.mesh));
-              if (hits.length > 0 && hits[0].uv) {
-                const { x: u, y: v } = hits[0].uv;
-                if (u < 0.15 && v > 0.81) {
-                  const hit = stickyNotes.find(n => n.mesh === hits[0].object);
-                  if (hit?.noteEntry?.audioUrl) {
-                    if (activeAudio && activeAudioMesh === hit.mesh) {
-                      activeAudio.pause(); activeAudio = null; activeAudioMesh = null;
-                      updateStickyFinal(hit.mesh, hit.noteEntry, false);
-                    } else {
-                      if (activeAudio) {
-                        activeAudio.pause();
-                        const prev = stickyNotes.find(n => n.mesh === activeAudioMesh);
-                        if (prev) updateStickyFinal(prev.mesh, prev.noteEntry, false);
-                      }
-                      activeAudio = new Audio(hit.noteEntry.audioUrl);
-                      activeAudioMesh = hit.mesh;
-                      updateStickyFinal(hit.mesh, hit.noteEntry, true);
-                      activeAudio.onended = () => {
-                        activeAudio = null; activeAudioMesh = null;
-                        updateStickyFinal(hit.mesh, hit.noteEntry, false);
-                      };
-                      activeAudio.play().catch(() => {});
+          // Play/pause sticky note audio
+          for (const p of lastControllerPoses) {
+            const origin = new THREE.Vector3(p.x, p.y, p.z);
+            const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(new THREE.Quaternion(p.qx, p.qy, p.qz, p.qw)).normalize();
+            const hits = new THREE.Raycaster(origin, dir).intersectObjects(stickyNotes.map(n => n.mesh));
+            if (hits.length > 0 && hits[0].uv) {
+              const { x: u, y: v } = hits[0].uv;
+              if (u < 0.15 && v > 0.78) {
+                const hit = stickyNotes.find(n => n.mesh === hits[0].object);
+                if (hit?.noteEntry?.audioUrl) {
+                  if (activeAudio && activeAudioMesh === hit.mesh) {
+                    activeAudio.pause(); activeAudio = null; activeAudioMesh = null;
+                    updateStickyFinal(hit.mesh, hit.noteEntry, false);
+                  } else {
+                    if (activeAudio) {
+                      activeAudio.pause();
+                      const prev = stickyNotes.find(n => n.mesh === activeAudioMesh);
+                      if (prev) updateStickyFinal(prev.mesh, prev.noteEntry, false);
                     }
-                    return;
+                    activeAudio = new Audio(hit.noteEntry.audioUrl);
+                    activeAudioMesh = hit.mesh;
+                    updateStickyFinal(hit.mesh, hit.noteEntry, true);
+                    activeAudio.onended = () => {
+                      activeAudio = null; activeAudioMesh = null;
+                      updateStickyFinal(hit.mesh, hit.noteEntry, false);
+                    };
+                    activeAudio.play().catch(() => {});
                   }
+                  return;
                 }
               }
             }
           }
         }
-        // Note creation is on grip (squeezeend) — see handler below
       });
 
-      // Grip press — either grab a saved sticky note to reposition, or arm placement preview
       session.addEventListener('squeezestart', () => {
         if (phase !== 'scanning' || annotating) return;
-        // Check if ray hits a saved sticky note — grab it
         for (const p of lastControllerPoses) {
           const origin = new THREE.Vector3(p.x, p.y, p.z);
           const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(new THREE.Quaternion(p.qx, p.qy, p.qz, p.qw)).normalize();
           const hits = new THREE.Raycaster(origin, dir).intersectObjects(stickyNotes.map(n => n.mesh));
-          if (hits.length > 0) {
-            grippedStickyIdx = stickyNotes.findIndex(n => n.mesh === hits[0].object);
-            return;
-          }
+          if (hits.length > 0) { grippedStickyIdx = stickyNotes.findIndex(n => n.mesh === hits[0].object); return; }
         }
-        // No note hit — arm the placement preview
-        gripHeld = true;
-        gripPreviewPos = null;
+        gripHeld = true; gripPreviewPos = null;
       });
 
-      // Grip release — drop grabbed note or create new note at preview position
       session.addEventListener('squeezeend', () => {
-        // Releasing a grabbed note — just drop it
-        if (grippedStickyIdx !== -1) {
-          grippedStickyIdx = -1;
-          return;
-        }
-        // Releasing grip — create note at preview position and start recording
+        if (grippedStickyIdx !== -1) { grippedStickyIdx = -1; return; }
         if (!gripHeld || !gripPreviewPos || annotating) { gripHeld = false; return; }
         gripHeld = false;
         notePreview.visible = false;
 
         pendingNotePos = gripPreviewPos;
         gripPreviewPos = null;
-        if (scene) activeStickyMesh = makeStickyNote(pendingNotePos);
+
+        // Place sticky note slightly above floor at preview location, at comfortable height
+        const noteWorldPos = {
+          x: pendingNotePos.x,
+          y: Math.max(lastViewerT?.y - 0.35 ?? lastFloorY + 0.9, lastFloorY + 0.5),
+          z: pendingNotePos.z,
+        };
+        if (scene) activeStickyMesh = makeStickyNote(noteWorldPos);
 
         const noteAzDeg = (carCenter && lastViewerT)
           ? ((Math.atan2(lastViewerT.z - carCenter.z, lastViewerT.x - carCenter.x) * 180 / Math.PI) + 360) % 360
           : currentBucket * BUCKET_DEG;
-        const noteEntry = { id: String(Date.now()), text: '', angle: noteAzDeg, position3d: pendingNotePos };
+        const noteEntry = { id: String(Date.now()), text: '', angle: noteAzDeg, position3d: noteWorldPos };
         voiceNotes.push(noteEntry);
 
         annotating = true;
+        mPanel.visible = false;
         vPanel.visible = true;
         drawVoice('Recording...');
         startVosk(activeStickyMesh, noteEntry);
-        drawStatus();
       });
 
       session.addEventListener('end', () => {
@@ -1148,16 +1024,13 @@ function rrect(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
-// Intersect cached controller ray(s) with the floor plane at floorY.
-// floorY comes from hit-test so it's correct regardless of reference space type.
-// Returns { x, y: floorY, z } or null if no ray reaches the floor.
 function rayFloorIntersect(poses, floorY = 0) {
   for (const p of poses) {
     const quat = new THREE.Quaternion(p.qx, p.qy, p.qz, p.qw);
     const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(quat);
-    if (Math.abs(dir.y) < 0.01) continue; // nearly horizontal — skip
-    const t = (floorY - p.y) / dir.y;    // solve: p.y + t*dir.y = floorY
-    if (t < 0) continue;                  // floor is behind the ray
+    if (Math.abs(dir.y) < 0.01) continue;
+    const t = (floorY - p.y) / dir.y;
+    if (t < 0) continue;
     return { x: p.x + dir.x * t, y: floorY, z: p.z + dir.z * t };
   }
   return null;
