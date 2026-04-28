@@ -103,13 +103,13 @@ Angle-bucket scan (Polycam-style):
 Processing (ScanScene.jsx 'generating' stage):
 → First captured frame sent to /analyze-damage + /check-coverage (AI runs in parallel)
 → Fake "World Labs Marble" progress animation (6 seconds, 0→100%)
-→ teex-car.spz loaded as splatUrl when both AI + animation complete
+→ car_burnout.spz loaded as splatUrl when both AI + animation complete
 ```
 
 ### Phase 3 — Annotate
 ```
 AnnotateScene receives:
-→ splatUrl ('/assets/teex-car.spz') → GaussianViewer renders 3D splat
+→ splatUrl ('/api/splat') → GaussianViewer renders 3D splat
 → coverageDecisions → StickyNote overlays + color-coded annotation list
 → voiceNotes [{text, angle}] → Field Notes sidebar (right panel)
   - Each note shows directional label (Front/Left/Rear etc.) + transcript
@@ -231,10 +231,8 @@ All prompts instruct the model to return **only valid JSON** with no markdown. `
 ### Coverage Color System
 `coverage_decisions[].color` values (`green`, `red`, `amber`, `gray`) from Claude map directly to `coverageColors.js` → applied to Three.js `MeshStandardMaterial` in `CoverageOverlay.jsx`. GLB mesh names must match `area_name` strings from Claude output (case-insensitive substring match). Use [gltf.report](https://gltf.report) to inspect mesh names when debugging gray wireframes.
 
-### Required Assets (not in repo)
-Place in `frontend/public/assets/`:
-- `teex-car.glb` — wireframe mesh for coverage overlay
-- `teex-car.spz` — Gaussian splat for immersive view
+### Required Assets
+- `backend/assets/car_burnout_converted.spz` — Gaussian splat served via `GET /splat`
 
 ## Key Constraints
 
@@ -250,5 +248,5 @@ Place in `frontend/public/assets/`:
 - **WebSpatial SDK** — floating 3D UI panels for login/review/annotate. Scene configured as `volume` via `frontend/public/manifest.json` `main_scene` field.
 - **WebXR `immersive-ar`** — scan phase only. Activates color passthrough on Quest 3 / PICO 4. `ImmersiveScan.jsx` manages the full scan state machine: two-tap car placement (hit-test), angle-bucket frame capture (18 × 20° arcs), voice annotation via Web Speech API, fake splat generation animation.
 - **Detection in `ScanScene.jsx`**: WebSpatial shell (`/WebSpatial\//.test(userAgent)`) → CameraCapture (PICO path); WebXR AR supported → ImmersiveScan (Quest path); neither → CameraCapture fallback (desktop).
-- **Gaussian splat**: `teex-car.spz` served from `/assets/`. Displayed in `GaussianViewer.jsx` (Spark renderer). Generation is faked with a 6-second animation after AI analysis completes — World Labs API only accepts 4 images which is insufficient for vehicle reconstruction.
+- **Gaussian splat**: `car_burnout_converted.spz` in `backend/assets/`, served via `GET /splat`. Displayed in `GaussianViewer.jsx` (Spark renderer). Generation is faked with a 6-second animation after AI analysis completes — World Labs API only accepts 4 images which is insufficient for vehicle reconstruction.
 - **Voice notes**: Captured during ImmersiveScan via Web Speech API, stored as `[{text, angle}]`. Passed through `ScanScene.onComplete` → `App.jsx` state → `AnnotateScene` Field Notes sidebar.
