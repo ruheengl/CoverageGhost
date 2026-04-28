@@ -1,5 +1,7 @@
 import { enableXRLayer } from '../lib/enableXRLayer';
 
+const inWebSpatial = /WebSpatial\//.test(navigator.userAgent);
+
 // Side navigation — matches the dark vertical pill from Figma
 // Collapsed (icon-only) on narrow screens, expanded with labels otherwise
 
@@ -74,7 +76,9 @@ export default function SideNav({ active, onNavigate, expanded = true }) {
     position: 'fixed',
     left: 20,
     top: '38%',
-    transform: 'translateY(-50%) perspective(800px) rotateY(18deg) translateZ(80px) translateY(-100px)',
+    transform: inWebSpatial
+      ? 'translateY(-50%) perspective(800px) rotateY(18deg) translateZ(80px) translateY(-100px)'
+      : 'translateY(-25%)',
     zIndex: 100,
     display: 'flex',
     flexDirection: 'column',
