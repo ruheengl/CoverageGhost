@@ -124,7 +124,7 @@ export default function CameraCapture({
       flex: 1, padding: '13px 10px',
       border: primary ? 'none' : '1px solid rgba(255,255,255,0.18)',
       borderRadius: 10,
-      background: disabled ? '#334155' : primary ? '#0d9488' : 'rgba(255,255,255,0.06)',
+      background: disabled ? '#334155' : primary ? '#1a3cef' : 'rgba(255,255,255,0.06)',
       color: 'white', fontWeight: primary ? 700 : 600, fontSize: 14,
       cursor: disabled ? 'default' : 'pointer',
     }}>

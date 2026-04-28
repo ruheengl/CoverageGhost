@@ -71,16 +71,22 @@ function UIQTokenScreen({ onVerify }) {
       <input
         value={token}
         onChange={e => setToken(e.target.value)}
-        placeholder="UIQ-_____-___"
+        placeholder="UIQ - _ _ _ _ _ - _ _ _"
         style={{
           width: '100%', padding: '11px 14px', borderRadius: 10,
           background: 'rgba(240,241,245,0.95)', fontSize: 14,
           color: '#1a1a2e', marginBottom: 20, fontFamily: 'monospace', boxSizing: 'border-box',
         }}
       />
-      <button className="btn-primary spatial-btn" onClick={() => onVerify(token)} style={{ borderRadius: 12, width: '100%' }}>
+      <div style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13, marginBottom: 16 }}>
+        This helps the company to accurately identify and validate the specific approved policy details tied to this claim.
+      </div>
+      <button className="btn-primary" onClick={() => onVerify(token)} style={{ borderRadius: 12, width: '100%' }}>
         Verify Token
       </button>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, marginTop: 14 }}>
+        <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13 }}>Step 1 of 6</span>
+      </div>
     </div>
   );
 }
@@ -96,6 +102,9 @@ function DriverDetailsChoice({ onManual, onScan }) {
       <div style={{ display: 'flex', gap: 12 }}>
         <button className="btn-secondary spatial-btn" onClick={onManual} style={{ flex: 1 }}>Enter Manually</button>
         <button className="btn-primary spatial-btn" onClick={onScan} style={{ flex: 1 }}>Scan Document</button>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, marginTop: 14 }}>
+        <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13 }}>Step 1 of 6</span>
       </div>
     </div>
   );
@@ -177,6 +186,119 @@ function CapturePhotoScreen({ onCapture, onBack }) {
         }}
       >
         Back
+      </button>
+    </div>
+  );
+}
+
+function ScanVehicleRegScreen({ onCapture, onManual }) {
+  return (
+    <div className="fade-up" style={{ width: 480 }}>
+      <CameraCapture
+        title="Scan Vehicle Registration"
+        subtitle="Point the camera at the vehicle registration card or upload a photo."
+        captureLabel="Capture Registration"
+        busyLabel="Reading registration..."
+        onCapture={async (file) => { await Promise.resolve(); onCapture(file); }}
+        style={{ width: '100%', boxSizing: 'border-box', background: 'rgba(30,30,40,0.70)' }}
+      />
+      <button
+        onClick={onManual}
+        style={{
+          marginTop: 10, width: '100%', padding: '11px',
+          background: 'rgba(30,30,40,0.70)', border: '1px solid rgba(255,255,255,0.12)',
+          borderRadius: 12, color: 'rgba(255,255,255,0.55)', fontSize: 14, cursor: 'pointer',
+          backdropFilter: 'blur(12px)',
+        }}
+      >
+        Enter Manually Instead
+      </button>
+    </div>
+  );
+}
+
+function RegistrationDetailsResult({ reg, onContinue }) {
+  return (
+    <div className="fade-up" style={CARD}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+        <div style={{ color: 'white', fontSize: 19, fontWeight: 700 }}>Registration Details</div>
+      </div>
+      <div style={DIVIDER} />
+      {[
+        ['Name', reg.name || 'James Chen'],
+        ['Age', reg.age || '37 Years'],
+        ['Vehicle Identification Number (VIN)', reg.vin || '5NMS3CLBJNH033803'],
+        ['License Plate Number', reg.plate || 'SEA MTR'],
+        ['Vehicle Year, Make', reg.vehicle || '2021 Toyota Camry'],
+        ['Registration Expiry Date', reg.expiry || 'Midnight Tue 11/30/2021'],
+      ].map(([label, value]) => (
+        <div key={label} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 11, alignItems: 'flex-start' }}>
+          <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 14, flexShrink: 0, maxWidth: '45%' }}>{label}</span>
+          <span style={{ color: 'white', fontSize: 14, fontWeight: 500, textAlign: 'right', maxWidth: '52%' }}>{value}</span>
+        </div>
+      ))}
+      <div style={DIVIDER} />
+      <button className="btn-primary" onClick={onContinue} style={{ width: '100%', borderRadius: 12, padding: '13px' }}>
+        Continue
+      </button>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, marginTop: 14 }}>
+        <span style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13 }}>Step 2 of 3</span>
+      </div>
+    </div>
+  );
+}
+
+function VerifyPolicyDialog({ onDismiss, onVerify }) {
+  return (
+    <div className="fade-up" style={{
+      position: 'fixed', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+      background: 'rgba(0,0,0,0.45)', zIndex: 50,
+    }}>
+      <div style={{
+        ...CARD,
+        maxWidth: 380,
+        textAlign: 'center',
+      }}>
+        <div style={{ color: 'white', fontSize: 19, fontWeight: 700, marginBottom: 8 }}>Verify Policy</div>
+        <div style={{ color: 'rgba(255,255,255,0.50)', fontSize: 14, marginBottom: 24, lineHeight: 1.5 }}>
+          Verify the captured information and check if coverage is active or not.
+        </div>
+        <div style={{ display: 'flex', gap: 12 }}>
+          <button className="btn-secondary" onClick={onDismiss} style={{ flex: 1 }}>Dismiss</button>
+          <button className="btn-primary" onClick={onVerify} style={{ flex: 1 }}>Verify</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PolicyActiveScreen({ policyData, onProceed }) {
+  const info = [
+    ['Claimant', policyData.claimant || 'James Chen'],
+    ['Policy #', policyData.policy_number || 'ALLST-2024-TX-00925'],
+    ['Coverage', policyData.coverage || 'Comprehensive + collision'],
+    ['Valid through', policyData.valid_through || 'Dec 31, 2026'],
+    ['Open Claims', policyData.open_claims || 'None'],
+  ];
+  return (
+    <div className="fade-up" style={CARD}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+        <div style={{ width: 12, height: 12, borderRadius: '50%', background: '#22c55e', boxShadow: '0 0 8px #22c55e', flexShrink: 0 }} />
+        <div style={{ color: 'white', fontSize: 19, fontWeight: 700 }}>Policy Active</div>
+      </div>
+      <div style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13, marginBottom: 20 }}>
+        Coverage is verified and eligible
+      </div>
+      <div style={DIVIDER} />
+      {info.map(([label, value]) => (
+        <div key={label} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
+          <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 14 }}>{label}</span>
+          <span style={{ color: 'white', fontSize: 14, fontWeight: 500, textAlign: 'right', maxWidth: '55%' }}>{value}</span>
+        </div>
+      ))}
+      <div style={DIVIDER} />
+      <button className="btn-primary" onClick={onProceed} style={{ width: '100%', borderRadius: 12, padding: '14px' }}>
+        Proceed to Scan Vehicle
       </button>
     </div>
   );
@@ -383,6 +505,13 @@ function DamageScanScreen({ claim, onComplete }) {
 export default function ScanScene({ claim, onComplete }) {
   const [step, setStep] = useState('task');
   const [driver, setDriver] = useState({});
+  const [policyData] = useState({
+    claimant: claim?.adjuster || 'James Chen',
+    policy_number: 'ALLST-2024-TX-00925',
+    coverage: 'Comprehensive + collision',
+    valid_through: 'Dec 31, 2026',
+    open_claims: 'None',
+  });
 
   return (
     <div style={{ width: '100vw', height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -404,7 +533,19 @@ export default function ScanScene({ claim, onComplete }) {
           <DriverDetailsResult driver={driver} onCapturePhoto={() => setStep('photo')} onManual={() => setStep('driver')} />
         )}
         {step === 'photo' && (
-          <CapturePhotoScreen onCapture={() => setStep('scan')} onBack={() => setStep('driver')} />
+          <CapturePhotoScreen onCapture={() => setStep('vehicle-reg')} onBack={() => setStep('driver')} />
+        )}
+        {step === 'vehicle-reg' && (
+          <ScanVehicleRegScreen onCapture={() => setStep('verify-claim')} onManual={() => setStep('reg-details')} />
+        )}
+        {step === 'reg-details' && (
+          <RegistrationDetailsResult reg={{}} onContinue={() => setStep('verify-claim')} />
+        )}
+        {step === 'verify-claim' && (
+          <VerifyPolicyDialog onDismiss={() => setStep('vehicle-reg')} onVerify={() => setStep('policy-active')} />
+        )}
+        {step === 'policy-active' && (
+          <PolicyActiveScreen policyData={policyData} onProceed={() => setStep('scan')} />
         )}
         {step === 'scan' && (
           <DamageScanScreen claim={claim} onComplete={onComplete} />
