@@ -10,6 +10,10 @@ export default function CameraBackground({ active }) {
       streamRef.current = null;
       return;
     }
+    if (!navigator.mediaDevices?.getUserMedia) {
+      console.warn('[CameraBackground] getUserMedia not available on this platform');
+      return;
+    }
     navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
       .then(stream => {
         streamRef.current = stream;

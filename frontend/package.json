@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "spatial": "webspatial-builder run --bundle-id=com.webspatial.lumen --base=\"https://localhost:5173/\"",
+    "spatial:device": "webspatial-builder build --manifest=public/app.webmanifest --bundle-id=com.webspatial.lumen --teamId=6FD7NQC7ZL --base=\"https://10.18.167.137:5173/\" --buildType=device"
   },
   "dependencies": {
     "@mkkellogg/gaussian-splats-3d": "^0.4.7",
@@ -24,6 +26,8 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
+    "@webspatial/builder": "^1.6.1",
+    "@webspatial/platform-visionos": "^1.6.1",
     "eslint": "^10.2.1",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.2",

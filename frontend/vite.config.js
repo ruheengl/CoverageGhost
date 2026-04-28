@@ -4,7 +4,7 @@ import basicSsl from '@vitejs/plugin-basic-ssl'
 
 
 export default defineConfig({
-  plugins: [react(), basicSsl()],
+  plugins: [react({ jsxImportSource: '@webspatial/react-sdk' }), basicSsl()],
   server: {
     port: 5173,
     host: true,
