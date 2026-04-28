@@ -13,9 +13,11 @@ const ANIM_MS = 6000;
 const SPIN = ['◐', '◓', '◑', '◒'];
 
 const CARD = {
-  background: 'rgba(30,30,40,0.85)',
+  background: 'rgba(93,93,93,0.80)',
+  backdropFilter: 'blur(24px)',
+  WebkitBackdropFilter: 'blur(24px)',
   borderRadius: 20,
-  border: '1px solid rgba(255,255,255,0.10)',
+  border: '1px solid rgba(255,255,255,0.14)',
   boxShadow: '0 8px 40px rgba(0,0,0,0.4)',
   padding: 28,
   width: 480,
@@ -81,7 +83,7 @@ function UIQTokenScreen({ onVerify }) {
       <div style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13, marginBottom: 16 }}>
         This helps the company to accurately identify and validate the specific approved policy details tied to this claim.
       </div>
-      <button className="btn-primary" onClick={() => onVerify(token)} style={{ borderRadius: 12, width: '100%' }}>
+      <button className="btn-primary spatial-btn" onClick={() => onVerify(token)} style={{ borderRadius: 12, width: '100%' }}>
         Verify Token
       </button>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, marginTop: 14 }}>
@@ -122,12 +124,12 @@ function ScanLicenseScreen({ onCapture, onManual }) {
         style={{ width: '100%', boxSizing: 'border-box', background: 'rgba(30,30,40,0.70)' }}
       />
       <button
+        className="spatial-btn"
         onClick={onManual}
         style={{
           marginTop: 10, width: '100%', padding: '11px',
-          background: 'rgba(30,30,40,0.70)', border: '1px solid rgba(255,255,255,0.12)',
+          background: 'rgba(30,30,40,0.88)', border: '1px solid rgba(255,255,255,0.12)',
           borderRadius: 12, color: 'rgba(255,255,255,0.55)', fontSize: 14, cursor: 'pointer',
-          backdropFilter: 'blur(12px)',
         }}
       >
         Enter Manually Instead
@@ -177,12 +179,12 @@ function CapturePhotoScreen({ onCapture, onBack }) {
         style={{ width: '100%', boxSizing: 'border-box', background: 'rgba(30,30,40,0.70)' }}
       />
       <button
+        className="spatial-btn"
         onClick={onBack}
         style={{
           marginTop: 10, width: '100%', padding: '11px',
-          background: 'rgba(30,30,40,0.70)', border: '1px solid rgba(255,255,255,0.12)',
+          background: 'rgba(30,30,40,0.88)', border: '1px solid rgba(255,255,255,0.12)',
           borderRadius: 12, color: 'rgba(255,255,255,0.55)', fontSize: 14, cursor: 'pointer',
-          backdropFilter: 'blur(12px)',
         }}
       >
         Back
@@ -203,12 +205,12 @@ function ScanVehicleRegScreen({ onCapture, onManual }) {
         style={{ width: '100%', boxSizing: 'border-box', background: 'rgba(30,30,40,0.70)' }}
       />
       <button
+        className="spatial-btn"
         onClick={onManual}
         style={{
           marginTop: 10, width: '100%', padding: '11px',
-          background: 'rgba(30,30,40,0.70)', border: '1px solid rgba(255,255,255,0.12)',
+          background: 'rgba(30,30,40,0.88)', border: '1px solid rgba(255,255,255,0.12)',
           borderRadius: 12, color: 'rgba(255,255,255,0.55)', fontSize: 14, cursor: 'pointer',
-          backdropFilter: 'blur(12px)',
         }}
       >
         Enter Manually Instead
@@ -238,7 +240,7 @@ function RegistrationDetailsResult({ reg, onContinue }) {
         </div>
       ))}
       <div style={DIVIDER} />
-      <button className="btn-primary" onClick={onContinue} style={{ width: '100%', borderRadius: 12, padding: '13px' }}>
+      <button className="btn-primary spatial-btn" onClick={onContinue} style={{ width: '100%', borderRadius: 12, padding: '13px' }}>
         Continue
       </button>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, marginTop: 14 }}>
@@ -264,8 +266,8 @@ function VerifyPolicyDialog({ onDismiss, onVerify }) {
           Verify the captured information and check if coverage is active or not.
         </div>
         <div style={{ display: 'flex', gap: 12 }}>
-          <button className="btn-secondary" onClick={onDismiss} style={{ flex: 1 }}>Dismiss</button>
-          <button className="btn-primary" onClick={onVerify} style={{ flex: 1 }}>Verify</button>
+          <button className="btn-secondary spatial-btn" onClick={onDismiss} style={{ flex: 1 }}>Dismiss</button>
+          <button className="btn-primary spatial-btn" onClick={onVerify} style={{ flex: 1 }}>Verify</button>
         </div>
       </div>
     </div>
@@ -297,7 +299,7 @@ function PolicyActiveScreen({ policyData, onProceed }) {
         </div>
       ))}
       <div style={DIVIDER} />
-      <button className="btn-primary" onClick={onProceed} style={{ width: '100%', borderRadius: 12, padding: '14px' }}>
+      <button className="btn-primary spatial-btn" onClick={onProceed} style={{ width: '100%', borderRadius: 12, padding: '14px' }}>
         Proceed to Scan Vehicle
       </button>
     </div>
@@ -460,8 +462,9 @@ function DamageScanScreen({ claim, onComplete }) {
           background: 'rgba(2,6,23,0.6)', zIndex: 10,
         }}>
           <div style={{
-            background: 'rgba(15,23,42,0.90)',
-            borderRadius: 20, border: '1px solid rgba(255,255,255,0.10)',
+            background: 'rgba(93,93,93,0.80)',
+            backdropFilter: 'blur(24px)', WebkitBackdropFilter: 'blur(24px)',
+            borderRadius: 20, border: '1px solid rgba(255,255,255,0.14)',
             padding: 28, width: 480, maxHeight: '80vh', overflowY: 'auto',
           }}>
             <div style={{ color: 'white', fontSize: 19, fontWeight: 700, marginBottom: 4 }}>Coverage Analysis</div>

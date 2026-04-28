@@ -12,11 +12,11 @@ export default function LoginScene({ onLogin }) {
     <div style={{ width: '100vw', height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <div className="fade-up" style={{
         position: 'relative', zIndex: 10,
-        background: 'rgba(52,52,52,0.88)',
+        background: 'rgba(93,93,93,0.80)',
         backdropFilter: 'blur(24px)',
         WebkitBackdropFilter: 'blur(24px)',
         borderRadius: 28,
-        border: '1px solid rgba(255,255,255,0.10)',
+        border: '1px solid rgba(255,255,255,0.14)',
         boxShadow: '0 12px 60px rgba(0,0,0,0.5)',
         padding: 10,
         width: 420,
