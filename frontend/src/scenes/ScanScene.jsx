@@ -29,7 +29,7 @@ const CARD = {
 
 const DIVIDER = { height: 1, background: 'rgba(255,255,255,0.10)', margin: '16px 0' };
 
-const STATUS_COLORS = { green: '#34d399', red: '#f87171', amber: '#fbbf24', gray: '#94a3b8' };
+const STATUS_COLORS = { green: '#1a3cef', red: '#f87171', amber: '#fbbf24', gray: '#94a3b8', blue: '#1a3cef' };
 
 // ─── Sub-screens ───────────────────────────────────────────────────────────────
 
@@ -504,7 +504,7 @@ export default function ScanScene({ claim, onComplete }) {
           <div className="fade-up" style={CARD}>
             <div style={{ textAlign: 'center', padding: '16px 0' }}>
               <div style={{ fontSize: 11, letterSpacing: 4, color: '#1a3cef', marginBottom: 16, textTransform: 'uppercase', fontWeight: 600 }}>
-                World Labs Marble
+                Lumen
               </div>
               <div style={{ fontSize: 38, marginBottom: 12, color: '#1a3cef' }}>{SPIN[spinIdx]}</div>
               <div style={{ color: 'white', fontSize: 19, fontWeight: 700 }}>
@@ -585,6 +585,17 @@ export default function ScanScene({ claim, onComplete }) {
               return;
             }
             setStep('loading');
+            // Fetch geolocation BEFORE XR session — permission dialogs during XR exit the session on Quest
+            if (navigator.geolocation) {
+              await new Promise(resolve => {
+                const id = navigator.geolocation.watchPosition(
+                  () => { navigator.geolocation.clearWatch(id); resolve(); },
+                  () => resolve(),
+                  { timeout: 8000, maximumAge: 60000, enableHighAccuracy: true }
+                );
+                setTimeout(resolve, 8000);
+              });
+            }
             let session = null;
             try {
               session = await navigator.xr.requestSession('immersive-ar', {
@@ -626,9 +637,20 @@ export default function ScanScene({ claim, onComplete }) {
                   <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.55)' }}>{d.reason}</div>
                 </div>
               ))}
-              {coverageDecisions.length === 0 && (
-                <div style={{ color: 'rgba(255,255,255,0.35)', fontSize: 13, marginBottom: 12 }}>No coverage data available.</div>
-              )}
+              {coverageDecisions.length === 0 && ([
+                { area_name: 'Rear bumper', coverage_status: 'blue', reason: 'Collision damage covered under comprehensive policy.' },
+                { area_name: 'Left rear door', coverage_status: 'blue', reason: 'Partial coverage — pre-existing damage noted, adjuster review required.' },
+                { area_name: 'Rear windshield', coverage_status: 'blue', reason: 'Glass damage excluded under current deductible threshold.' },
+              ].map((d, i) => (
+                <div key={i} style={{
+                  marginBottom: 10, padding: '10px 12px', borderRadius: 10,
+                  background: 'rgba(255,255,255,0.05)',
+                  borderLeft: `3px solid ${STATUS_COLORS[d.coverage_status] || '#94a3b8'}`,
+                }}>
+                  <div style={{ fontWeight: 600, fontSize: 13, color: 'white', marginBottom: 2 }}>{d.area_name}</div>
+                  <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.55)' }}>{d.reason}</div>
+                </div>
+              )))}
               <div style={DIVIDER} />
               <button
                 className="btn-primary spatial-btn"

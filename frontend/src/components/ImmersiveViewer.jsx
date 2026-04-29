@@ -58,7 +58,7 @@ export default function ImmersiveViewer({ splatUrl, damageData, onComplete, onEx
     let pTex;
 
     const exitCanvas = document.createElement('canvas');
-    exitCanvas.width = 256; exitCanvas.height = 96;
+    exitCanvas.width = 256; exitCanvas.height = 80;
     const exitCtx = exitCanvas.getContext('2d');
     let exitTex, exitBtn;
 
@@ -80,16 +80,13 @@ export default function ImmersiveViewer({ splatUrl, damageData, onComplete, onEx
     }
 
     function drawExitButton() {
-      exitCtx.clearRect(0, 0, 256, 96);
-      exitCtx.fillStyle = 'rgba(248,113,113,0.88)';
-      rrect(exitCtx, 0, 0, 256, 96, 24); exitCtx.fill();
-      exitCtx.strokeStyle = 'rgba(255,255,255,0.30)';
-      exitCtx.lineWidth = 3;
-      rrect(exitCtx, 0, 0, 256, 96, 24); exitCtx.stroke();
+      exitCtx.clearRect(0, 0, 256, 80);
+      exitCtx.fillStyle = '#323232';
+      rrect(exitCtx, 0, 0, 256, 80, 16); exitCtx.fill();
       exitCtx.fillStyle = 'white';
-      exitCtx.font = 'bold 34px Arial';
+      exitCtx.font = 'bold 28px Arial';
       exitCtx.textAlign = 'center';
-      exitCtx.fillText('Exit', 128, 60);
+      exitCtx.fillText('✕  Exit View', 128, 50);
       exitTex.needsUpdate = true;
     }
 
@@ -141,11 +138,21 @@ export default function ImmersiveViewer({ splatUrl, damageData, onComplete, onEx
 
       exitTex = new THREE.CanvasTexture(exitCanvas);
       exitBtn = new THREE.Mesh(
-        new THREE.PlaneGeometry(0.22, 0.0825),
+        new THREE.PlaneGeometry(0.18, 0.056),
         new THREE.MeshBasicMaterial({ map: exitTex, transparent: true, depthWrite: false })
       );
       scene.add(exitBtn);
       drawExitButton();
+
+      // Controller rays
+      const rayGeo = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(0, 0, 0),
+        new THREE.Vector3(0, 0, -3),
+      ]);
+      const leftRay  = new THREE.Line(rayGeo, new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.7 }));
+      const rightRay = new THREE.Line(rayGeo, new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.7 }));
+      leftRay.visible = false; rightRay.visible = false;
+      scene.add(leftRay, rightRay);
 
       const areaCount = damageData?.affected_areas?.length ?? damageData?.damaged_areas?.length ?? 0;
       drawPanel('Loading splat...', areaCount > 0 ? `${areaCount} damage area${areaCount !== 1 ? 's' : ''} detected` : '');
@@ -269,16 +276,25 @@ export default function ImmersiveViewer({ splatUrl, damageData, onComplete, onEx
           prevPinch.right = right?.pinching ? right : null;
         }
 
+        // Controller rays
+        leftRay.visible = false; rightRay.visible = false;
+        for (const src of frame.session.inputSources) {
+          if (!src.targetRaySpace || src.hand) continue;
+          const rp = frame.getPose(src.targetRaySpace, refSpace);
+          if (!rp) continue;
+          const rt = rp.transform.position, rq = rp.transform.orientation;
+          const ray = src.handedness === 'left' ? leftRay : rightRay;
+          ray.position.set(rt.x, rt.y, rt.z);
+          ray.quaternion.set(rq.x, rq.y, rq.z, rq.w);
+          ray.visible = true;
+        }
+
         // Head-lock panel
         panel.position.set(tx + fwd.x * 0.9, ty + 0.1 + fwd.y * 0.9, tz + fwd.z * 0.9);
         panel.quaternion.copy(quat);
 
-        const right = new THREE.Vector3(1, 0, 0).applyQuaternion(quat);
-        exitBtn.position.set(
-          tx + fwd.x * 0.9 + right.x * 0.41,
-          ty + 0.21 + fwd.y * 0.9,
-          tz + fwd.z * 0.9 + right.z * 0.41
-        );
+        // Exit button — centred, same position as ImmersiveScan
+        exitBtn.position.set(tx + fwd.x * 0.88, ty + 0.19 + fwd.y * 0.88, tz + fwd.z * 0.88);
         exitBtn.quaternion.copy(quat);
 
         renderer.render(scene, camera);

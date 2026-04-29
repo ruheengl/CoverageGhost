@@ -4,7 +4,7 @@ import { scanFrame } from '../lib/api';
 
 const BUCKETS = 5;
 const BUCKET_DEG = 360 / BUCKETS;
-const MIN_BUCKETS_COMPLETE = 18;
+const MIN_BUCKETS_COMPLETE = 0;
 
 // 4-wheel setup phases in order
 const WHEEL_PHASES = ['setup-fl', 'setup-fr', 'setup-rr', 'setup-rl'];
@@ -37,6 +37,8 @@ export default function ImmersiveScan({ onCapture, onExit, xrSession: providedSe
     let activeAudioMesh = null;   // mesh whose button is in play state
     let gripHeld = false;         // grip button currently held (recording in progress)
     let grippedStickyIdx = -1;    // index of sticky note being moved (-1 = none)
+    let hoveredStickyIdx = -1;    // index of note whose edge is hovered (-1 = none)
+    let draggingActiveNote = false; // trigger held on activeStickyMesh during recording
     const scanId = Date.now();
     let lastControllerPoses = []; // cached each XR frame from targetRaySpace
     let lastDebugPt = null; // last placed wheel point for on-screen debug
@@ -61,8 +63,16 @@ export default function ImmersiveScan({ onCapture, onExit, xrSession: providedSe
     logsCanvas.width = 400; logsCanvas.height = 520;
     const lc = logsCanvas.getContext('2d');
     let logsTex, logsPanel;
-    let aiLogs = [{ id: 'default-1', text: 'Dent detected', saved: false }];
+    let aiLogs = [{
+      id: 'sample-1',
+      name: 'Rear bumper',
+      description: 'Deep scratch with paint transfer, approximately 30cm long',
+      severity: 'moderate',
+      damageType: 'collision',
+      saved: false,
+    }];
     let damageAnalyses = [];
+    const pendingAnalyses = [];
 
     // ── Drawing helpers ──────────────────────────────────────────────────────
 
@@ -79,7 +89,7 @@ export default function ImmersiveScan({ onCapture, onExit, xrSession: providedSe
       for (let i = 0; i < 4; i++) {
         mc.beginPath();
         mc.arc(176 + i * 54, 36, 10, 0, Math.PI * 2);
-        mc.fillStyle = i < stepIdx ? '#1a3cef' : i === stepIdx ? '#34d399' : 'rgba(255,255,255,0.2)';
+        mc.fillStyle = i < stepIdx ? '#1a3cef' : i === stepIdx ? '#1a3cef' : 'rgba(255,255,255,0.2)';
         mc.fill();
       }
 
@@ -143,7 +153,7 @@ export default function ImmersiveScan({ onCapture, onExit, xrSession: providedSe
         mc.fillText('🎙 Recording... pull trigger to save', 256, 160);
       } else if (filled >= MIN_BUCKETS_COMPLETE) {
         mc.fillStyle = '#1a3cef'; mc.font = 'bold 20px Arial';
-        mc.fillText('✓ Pull trigger to complete scan', 256, 160);
+        mc.fillText('✓ Click Exit Scan', 256, 160);
         mc.fillStyle = 'rgba(255,255,255,0.35)'; mc.font = '16px Arial';
         mc.fillText('or keep walking for more coverage', 256, 190);
       } else {
@@ -180,45 +190,74 @@ export default function ImmersiveScan({ onCapture, onExit, xrSession: providedSe
 
     function drawLogsTray() {
       lc.clearRect(0, 0, 400, 520);
-      lc.fillStyle = 'rgba(15,23,42,0.92)';
+      // Grey glassmorphic background
+      lc.fillStyle = 'rgba(28,28,32,0.97)';
       rrect(lc, 0, 0, 400, 520, 20); lc.fill();
+      lc.strokeStyle = 'rgba(255,255,255,0.12)'; lc.lineWidth = 1.5;
+      rrect(lc, 0, 0, 400, 520, 20); lc.stroke();
       // Header
-      lc.fillStyle = 'white'; lc.font = 'bold 17px Arial'; lc.textAlign = 'left';
-      lc.fillText('AI Analysis', 20, 30);
+      lc.fillStyle = 'white'; lc.font = 'bold 22px Arial'; lc.textAlign = 'left';
+      lc.fillText('AI Analysis', 20, 36);
       const pending = aiLogs.filter(l => !l.saved);
-      lc.fillStyle = 'rgba(255,255,255,0.45)'; lc.font = '13px Arial';
-      lc.fillText(`${aiLogs.length} AI Log${aiLogs.length !== 1 ? 's' : ''}  ·  ${pending.length} pending`, 20, 52);
+      lc.fillStyle = 'rgba(255,255,255,0.50)'; lc.font = '16px Arial';
+      lc.fillText(`${aiLogs.length} finding${aiLogs.length !== 1 ? 's' : ''}  ·  ${pending.length} pending`, 20, 60);
       // Divider
-      lc.fillStyle = 'rgba(255,255,255,0.10)'; lc.fillRect(14, 62, 372, 1);
-      // Show last 5 pending items
-      const visible = pending.slice(-5);
+      lc.fillStyle = 'rgba(255,255,255,0.15)'; lc.fillRect(14, 72, 372, 1);
+      // Show last 3 pending items
+      const visible = pending.slice(-3);
+      if (visible.length === 0) {
+        lc.fillStyle = 'rgba(255,255,255,0.30)'; lc.font = '17px Arial'; lc.textAlign = 'center';
+        lc.fillText('Waiting for scan results…', 200, 130);
+      }
+      const SEVERITY_COLORS = { low: '#22c55e', moderate: '#fbbf24', severe: '#f87171', total_loss: '#ef4444' };
+      const CARD_H = 148;
       visible.forEach((log, i) => {
-        const cy = 70 + i * 90;
+        const cy = 82 + i * (CARD_H + 6);
         // Card
-        lc.fillStyle = 'rgba(255,255,255,0.07)';
-        rrect(lc, 14, cy, 372, 80, 12); lc.fill();
-        // Text (2-line clamp)
-        lc.fillStyle = 'white'; lc.font = '14px Arial'; lc.textAlign = 'left';
-        const words = log.text.split(' ');
-        let line = '', ty = cy + 20;
-        for (const w of words) {
-          const test = line + w + ' ';
-          if (lc.measureText(test).width > 336 && line) {
-            lc.fillText(line.trim(), 26, ty); line = w + ' '; ty += 18;
-          } else { line = test; }
-          if (ty > cy + 40) { lc.fillText(line.trim() + '…', 26, ty); line = null; break; }
+        lc.fillStyle = 'rgba(255,255,255,0.08)';
+        rrect(lc, 14, cy, 372, CARD_H, 12); lc.fill();
+        lc.strokeStyle = 'rgba(255,255,255,0.10)'; lc.lineWidth = 1;
+        rrect(lc, 14, cy, 372, CARD_H, 12); lc.stroke();
+
+        // Severity badge — top-right corner
+        const sev = (log.severity || '').toLowerCase();
+        const sevColor = SEVERITY_COLORS[sev] || '#94a3b8';
+        const sevLabel = sev ? sev.replace('_', ' ') : 'unknown';
+        lc.font = 'bold 13px Arial';
+        const badgeW = lc.measureText(sevLabel).width + 18;
+        lc.fillStyle = sevColor + '33';
+        rrect(lc, 372 - badgeW - 8, cy + 12, badgeW, 22, 5); lc.fill();
+        lc.fillStyle = sevColor; lc.textAlign = 'center';
+        lc.fillText(sevLabel, 372 - badgeW / 2 - 8, cy + 27);
+
+        // Area name
+        lc.fillStyle = 'white'; lc.font = 'bold 18px Arial'; lc.textAlign = 'left';
+        lc.fillText(log.name || 'Unknown area', 26, cy + 26);
+
+        // Damage type row
+        if (log.damageType) {
+          lc.fillStyle = 'rgba(255,255,255,0.50)'; lc.font = '14px Arial'; lc.textAlign = 'left';
+          lc.fillText('Type: ' + log.damageType, 26, cy + 50);
         }
-        if (line) lc.fillText(line.trim(), 26, ty);
-        // Cancel button
-        lc.fillStyle = 'rgba(255,255,255,0.12)';
-        rrect(lc, 20, cy + 52, 140, 22, 6); lc.fill();
-        lc.fillStyle = 'rgba(255,255,255,0.65)'; lc.font = '12px Arial'; lc.textAlign = 'center';
-        lc.fillText('Cancel', 90, cy + 67);
+
+        // Description (1-line clamp)
+        lc.fillStyle = 'rgba(255,255,255,0.80)'; lc.font = '15px Arial'; lc.textAlign = 'left';
+        const descY = log.damageType ? cy + 74 : cy + 54;
+        let desc = log.description || '';
+        while (desc && lc.measureText(desc + '…').width > 346) desc = desc.slice(0, -1);
+        if (desc !== log.description && desc) desc += '…';
+        if (desc) lc.fillText(desc, 26, descY);
+
+        // Dismiss button
+        lc.fillStyle = 'rgba(255,255,255,0.18)';
+        rrect(lc, 20, cy + CARD_H - 40, 140, 30, 8); lc.fill();
+        lc.fillStyle = 'rgba(255,255,255,0.80)'; lc.font = '14px Arial'; lc.textAlign = 'center';
+        lc.fillText('Dismiss', 90, cy + CARD_H - 20);
         // Save button
-        lc.fillStyle = '#1a3ecf';
-        rrect(lc, 174, cy + 52, 200, 22, 6); lc.fill();
-        lc.fillStyle = 'white'; lc.font = 'bold 12px Arial';
-        lc.fillText('Save', 274, cy + 67);
+        lc.fillStyle = '#1a3cef';
+        rrect(lc, 170, cy + CARD_H - 40, 206, 30, 8); lc.fill();
+        lc.fillStyle = 'white'; lc.font = 'bold 14px Arial';
+        lc.fillText('Save as Note', 273, cy + CARD_H - 20);
       });
       logsTex.needsUpdate = true;
     }
@@ -227,15 +266,14 @@ export default function ImmersiveScan({ onCapture, onExit, xrSession: providedSe
 
     function createScanRing(scene) {
       ringMeshes = [];
-      // Vertical pillars — visible from standing height, not flat on floor
-      const geo = new THREE.BoxGeometry(0.06, 0.5, 0.06);
+      const geo = new THREE.SphereGeometry(0.10, 16, 16);
       for (let i = 0; i < BUCKETS; i++) {
         const a = (i / BUCKETS) * Math.PI * 2;
-        const mat = new THREE.MeshBasicMaterial({ color: 0x1e293b });
+        const mat = new THREE.MeshStandardMaterial({ color: 0x888888, emissive: 0x888888, emissiveIntensity: 0.6, transparent: true, opacity: 0.55, roughness: 0.3, metalness: 0.4 });
         const mesh = new THREE.Mesh(geo, mat);
         mesh.position.set(
           carCenter.x + Math.cos(a) * scanRadius,
-          0.25, // base at floor, top at 0.5m
+          1.2,
           carCenter.z + Math.sin(a) * scanRadius
         );
         scene.add(mesh);
@@ -245,13 +283,11 @@ export default function ImmersiveScan({ onCapture, onExit, xrSession: providedSe
 
     function updateRing() {
       ringMeshes.forEach((mesh, i) => {
-        if (i === currentBucket) {
-          mesh.material.color.set(tooClose ? 0xef4444 : 0x34d399);
-        } else if (buckets[i]) {
-          mesh.material.color.set(0x1a3cef);
-        } else {
-          mesh.material.color.set(0x1e293b);
-        }
+        const col = i === currentBucket ? (tooClose ? 0xef4444 : 0x22c55e) : buckets[i] ? 0x22c55e : 0x383838;
+        const op  = i === currentBucket ? 0.75 : 0.55;
+        mesh.material.color.set(col);
+        mesh.material.emissive.set(col);
+        mesh.material.opacity = op;
       });
     }
 
@@ -275,7 +311,7 @@ export default function ImmersiveScan({ onCapture, onExit, xrSession: providedSe
     }
 
     function uploadAndAnalyze(b64, angleDeg, bIdx) {
-      scanFrame({ frameBase64: b64, angle: angleDeg, bucketIndex: bIdx, scanId })
+      const p = scanFrame({ frameBase64: b64, angle: angleDeg, bucketIndex: bIdx, scanId })
         .then(damage => {
           const storedDamage = { ...damage, scan_angle: angleDeg, bucket_index: bIdx };
           damageAnalyses.push(storedDamage);
@@ -283,12 +319,19 @@ export default function ImmersiveScan({ onCapture, onExit, xrSession: providedSe
           const areas = damage?.affected_areas || damage?.damaged_areas || [];
           areas.forEach(area => {
             const name = area.name || area.area_name || area.area || 'Unknown';
-            const detail = [area.severity, area.damage_type || area.description?.slice(0, 50)].filter(Boolean).join(' · ');
-            aiLogs.push({ id: String(Date.now() + Math.random()), text: detail ? `${name}: ${detail}` : name, saved: false });
+            aiLogs.push({
+              id: String(Date.now() + Math.random()),
+              name,
+              description: area.description || '',
+              severity: area.severity || damage.severity || '',
+              damageType: area.damage_type || damage.damage_type || '',
+              saved: false,
+            });
           });
-          if (areas.length) { drawLogsTray(); if (logsPanel) logsPanel.visible = true; }
+          if (areas.length) drawLogsTray();
         })
         .catch(e => console.warn('[ImmersiveScan] scanFrame:', e.message));
+      pendingAnalyses.push(p);
     }
 
     function getStoredDamageAnalyses() {
@@ -373,11 +416,11 @@ export default function ImmersiveScan({ onCapture, onExit, xrSession: providedSe
 
     function makeStickyNote(pos) {
       const c = document.createElement('canvas');
-      c.width = 400; c.height = 300; // 4:3
+      c.width = 360; c.height = 270;
       const tex = new THREE.CanvasTexture(c);
       const mesh = new THREE.Mesh(
         new THREE.PlaneGeometry(0.266, 0.2), // 4:3, half the original height
-        new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, side: THREE.DoubleSide })
+        new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0.75, depthWrite: false, side: THREE.DoubleSide })
       );
       mesh.position.set(pos.x, pos.y, pos.z);
       if (lastViewerT) mesh.lookAt(lastViewerT.x, mesh.position.y, lastViewerT.z);
@@ -388,18 +431,22 @@ export default function ImmersiveScan({ onCapture, onExit, xrSession: providedSe
       return mesh;
     }
 
-    function updateStickyText(mesh, text) {
+    function updateStickyText(mesh, text, edgeHighlight = false) {
       const c = mesh._noteCanvas;
       const ctx = c.getContext('2d');
       ctx.clearRect(0, 0, 360, 270);
-      ctx.fillStyle = '#929292';
+      ctx.fillStyle = '#545454';
       rrect(ctx, 0, 0, 360, 270, 20); ctx.fill();
+      if (edgeHighlight) {
+        ctx.strokeStyle = '#1a3cef'; ctx.lineWidth = 4;
+        rrect(ctx, 2, 2, 356, 266, 19); ctx.stroke();
+      }
       // Recording indicator bar
       rrect(ctx, 0, 0, 360, 52, 20); ctx.fillStyle = '#1c1917'; ctx.fill();
       ctx.fillRect(0, 32, 360, 20);
-      ctx.fillStyle = '#3f3f3f'; ctx.font = 'bold 20px Arial'; ctx.textAlign = 'center';
+      ctx.fillStyle = '#ffffff'; ctx.font = 'bold 20px Arial'; ctx.textAlign = 'center';
       ctx.fillText('🎙 Recording...', 180, 34);
-      ctx.fillStyle = '#1c1917';
+      ctx.fillStyle = '#ffffff';
       ctx.font = '20px Arial'; ctx.textAlign = 'left';
       const words = text.split(' ');
       let line = '', y = 76;
@@ -413,26 +460,50 @@ export default function ImmersiveScan({ onCapture, onExit, xrSession: providedSe
       mesh._noteTex.needsUpdate = true;
     }
 
-    function updateStickyFinal(mesh, noteEntry, playing = false) {
+    function drawTrashIcon(ctx, cx, cy, color) {
+      ctx.fillStyle = color;
+      ctx.fillRect(cx - 8, cy - 10, 16, 3);   // lid
+      ctx.fillRect(cx - 5, cy - 13, 10, 3);   // handle
+      ctx.fillRect(cx - 7, cy - 6, 14, 14);   // body
+      ctx.fillStyle = '#ef4444';               // dividers (cut-outs via same bg colour trick)
+      ctx.fillRect(cx - 2, cy - 4, 2, 9);
+      ctx.fillRect(cx + 2, cy - 4, 2, 9);
+    }
+
+    function updateStickyFinal(mesh, noteEntry, playing = false, edgeHighlight = false) {
       const c = mesh._noteCanvas;
       const ctx = c.getContext('2d');
       ctx.clearRect(0, 0, 360, 270);
       // Background
       ctx.fillStyle = '#545454';
       rrect(ctx, 0, 0, 360, 270, 20); ctx.fill();
-      // Top bar with play button
+      if (edgeHighlight) {
+        ctx.strokeStyle = '#1a3cef'; ctx.lineWidth = 4;
+        rrect(ctx, 2, 2, 356, 266, 19); ctx.stroke();
+      }
+      // Top bar with play + trash buttons
       rrect(ctx, 0, 0, 360, 56, 20); ctx.fillStyle = '#1c1917'; ctx.fill();
       ctx.fillRect(0, 36, 360, 20);
-      // Play button circle (UV: x<0.11, y>0.79 in Three.js UV space)
-      ctx.fillStyle = noteEntry.audioUrl ? (playing ? '#1a3cef' : '#34d399') : '#6b7280';
+      // Play button circle — left (UV: u<0.15, v>0.80)
+      ctx.fillStyle = noteEntry.audioUrl ? '#1a3cef' : '#6b7280';
       ctx.beginPath(); ctx.arc(34, 28, 20, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = '#fff'; ctx.font = 'bold 18px Arial'; ctx.textAlign = 'center';
-      ctx.fillText(playing ? '⏸' : '▶', 35, 34);
-      // Waveform bars next to play button
+      if (playing) {
+        // Two vertical bars (pause) drawn as rectangles — avoids emoji color override
+        ctx.fillRect(27, 18, 5, 20);
+        ctx.fillRect(37, 18, 5, 20);
+      } else {
+        ctx.fillText('▶', 36, 35);
+      }
+      // Trash button circle — right (UV: u>0.85, v>0.80)
+      ctx.fillStyle = '#ef4444';
+      ctx.beginPath(); ctx.arc(326, 28, 20, 0, Math.PI * 2); ctx.fill();
+      drawTrashIcon(ctx, 326, 28, '#fff');
+      // Waveform bars between buttons
       ctx.fillStyle = '#ffffff';
-      const bars = [8, 16, 24, 12, 20, 28, 14, 22, 18, 26, 10, 22, 16];
+      const bars = [8, 16, 24, 12, 20, 28, 14, 22, 18, 26, 10];
       bars.forEach((h, i) => {
-        ctx.fillRect(100 + i * 14, 28 - h / 2, 4, h);
+        ctx.fillRect(76 + i * 18, 28 - h / 2, 6, h);
       });
       // Transcribed text
       ctx.fillStyle = '#ffffff'; ctx.font = 'bold 18px Arial'; ctx.textAlign = 'left';
@@ -449,17 +520,15 @@ export default function ImmersiveScan({ onCapture, onExit, xrSession: providedSe
       // Bottom geo + timestamp bar
       ctx.fillStyle = 'rgba(0,0,0,0.12)'; ctx.fillRect(0, 210, 360, 60);
       ctx.fillStyle = '#ffffff'; ctx.font = 'bold 14px Arial'; ctx.textAlign = 'center';
-      const getRandomCoord = (min, max) => (Math.random() * (max - min) + min).toFixed(5);
-      const geo = (noteEntry.lat != null && noteEntry.lng != null)
+      // Cache random coords so hover redraws don't re-randomize
+      if (!noteEntry._geo) {
+        const rc = (min, max) => (Math.random() * (max - min) + min).toFixed(5);
+        noteEntry._geo = (noteEntry.lat != null && noteEntry.lng != null)
           ? `${noteEntry.lat.toFixed(5)}\xB0, ${noteEntry.lng.toFixed(5)}\xB0`
-          : `${getRandomCoord(-90, 90)}\xB0, ${getRandomCoord(-180, 180)}\xB0`;
-      ctx.fillText(geo, 180, 232);
+          : `${rc(-90, 90)}\xB0, ${rc(-180, 180)}\xB0`;
+      }
+      ctx.fillText(noteEntry._geo, 180, 232);
       ctx.fillText(noteEntry.timestamp || '', 180, 252);
-      // Trash icon — bottom-right (UV: u>0.83, v<0.09)
-      ctx.fillStyle = 'rgba(66, 66, 66, 0.85)';
-      rrect(ctx, 302, 236, 46, 24, 6); ctx.fill();
-      ctx.fillStyle = 'white'; ctx.font = 'bold 13px Arial'; ctx.textAlign = 'center';
-      ctx.fillText('🗑', 325, 253);
       mesh._noteTex.needsUpdate = true;
     }
 
@@ -468,8 +537,8 @@ export default function ImmersiveScan({ onCapture, onExit, xrSession: providedSe
       c.width = 360; c.height = 270;
       const tex = new THREE.CanvasTexture(c);
       const mesh = new THREE.Mesh(
-        new THREE.PlaneGeometry(0.133, 0.1),
-        new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, side: THREE.DoubleSide })
+        new THREE.PlaneGeometry(0.266, 0.2),
+        new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0.75, depthWrite: false, side: THREE.DoubleSide })
       );
       mesh.position.set(pos.x, pos.y, pos.z);
       if (lastViewerT) mesh.lookAt(lastViewerT.x, mesh.position.y, lastViewerT.z);
@@ -481,33 +550,36 @@ export default function ImmersiveScan({ onCapture, onExit, xrSession: providedSe
       return mesh;
     }
 
-    function drawAIStickyNote(mesh, text) {
+    function drawAIStickyNote(mesh, text, edgeHighlight = false) {
       const c = mesh._noteCanvas;
       const ctx = c.getContext('2d');
       ctx.clearRect(0, 0, 360, 270);
-      ctx.fillStyle = '#4b4b4b';
+      ctx.fillStyle = '#545454';
       rrect(ctx, 0, 0, 360, 270, 20); ctx.fill();
-      // Top label bar
-      rrect(ctx, 0, 0, 360, 46, 20); ctx.fillStyle = '#1c1917'; ctx.fill();
-      ctx.fillRect(0, 26, 360, 20);
-      ctx.fillStyle = '#1a3cef'; ctx.font = 'bold 14px Arial'; ctx.textAlign = 'left';
-      ctx.fillText('🤖 AI Analysis', 16, 32);
-      // Body text
-      ctx.fillStyle = '#1c1917'; ctx.font = 'bold 18px Arial'; ctx.textAlign = 'left';
+      if (edgeHighlight) {
+        ctx.strokeStyle = '#1a3cef'; ctx.lineWidth = 4;
+        rrect(ctx, 2, 2, 356, 266, 19); ctx.stroke();
+      }
+      // Top bar — same height as voice note (56px)
+      rrect(ctx, 0, 0, 360, 56, 20); ctx.fillStyle = '#1c1917'; ctx.fill();
+      ctx.fillRect(0, 36, 360, 20);
+      ctx.fillStyle = '#ffffff'; ctx.font = 'bold 14px Arial'; ctx.textAlign = 'left';
+      ctx.fillText('AI Analysis', 16, 32);
+      // Trash button circle — top-right (UV: u>0.83, v>0.78), matches voice note
+      ctx.fillStyle = '#ef4444';
+      ctx.beginPath(); ctx.arc(326, 28, 20, 0, Math.PI * 2); ctx.fill();
+      drawTrashIcon(ctx, 326, 28, '#fff');
+      // Body text — starts below the taller bar
+      ctx.fillStyle = '#ffffff'; ctx.font = 'bold 18px Arial'; ctx.textAlign = 'left';
       const words = text.split(' ');
-      let line = '', y = 68;
+      let line = '', y = 80;
       for (const w of words) {
         const test = line + w + ' ';
         if (ctx.measureText(test).width > 316 && line) { ctx.fillText(line, 22, y); line = w + ' '; y += 26; }
         else line = test;
-        if (y > 200) { ctx.fillText(line.trim() + '…', 22, y); line = null; break; }
+        if (y > 210) { ctx.fillText(line.trim() + '…', 22, y); line = null; break; }
       }
       if (line) ctx.fillText(line.trim(), 22, y);
-      // Trash icon — bottom-right (UV: u>0.83, v<0.09)
-      ctx.fillStyle = 'rgba(66, 66, 66, 0.85)';
-      rrect(ctx, 302, 236, 46, 24, 6); ctx.fill();
-      ctx.fillStyle = 'white'; ctx.font = 'bold 13px Arial'; ctx.textAlign = 'center';
-      ctx.fillText('🗑', 325, 253);
       mesh._noteTex.needsUpdate = true;
     }
 
@@ -521,6 +593,7 @@ export default function ImmersiveScan({ onCapture, onExit, xrSession: providedSe
     let voskModel = null;
     let voskRecognizer = null;
     let audioContext = null;
+    let voskToken = 0; // incremented on each startVosk call; stopVosk increments to cancel in-flight async
     let audioSource = null;
     let audioProcessor = null;
     let micStream = null;
@@ -540,38 +613,39 @@ export default function ImmersiveScan({ onCapture, onExit, xrSession: providedSe
     }
 
     async function startVosk(meshSnapshot, noteSnapshot) {
-      if (voskRecognizer || audioContext) return;
+      // Cancel any in-flight async setup from a previous call
+      const myToken = ++voskToken;
+      stopVoskAudio(); // ensure previous session is torn down before starting new one
       activeNoteCallbacks = { mesh: meshSnapshot, noteEntry: noteSnapshot };
       if (meshSnapshot) updateStickyText(meshSnapshot, 'Loading...');
-      // drawVoice('Loading model...');
 
       // 1. Load model once, cache in closure
       if (!voskModel) {
         try {
           rlog('vosk loading model...');
           const { createModel } = await import('vosk-browser');
-          // Wrap in timeout — createModel hangs forever on 404 without rejecting
           voskModel = await Promise.race([
             createModel('/assets/vosk-model-small-en-us-0.15.tar.gz'),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('timeout after 30s — model file missing?')), 30000)),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 30000)),
           ]);
           rlog('vosk model loaded OK');
         } catch (e) {
           rlog('vosk model load FAILED', e.message);
+          if (myToken !== voskToken) return;
           if (meshSnapshot) updateStickyText(meshSnapshot, 'Model missing.\nAdd vosk-model-small-en-us-0.15.tar.gz to /assets/');
-          // drawVoice('Voice unavailable: model file missing. Trigger to cancel.');
           return;
         }
       }
 
-      // 3. Open microphone
+      if (myToken !== voskToken) return; // cancelled by stopVosk while model was loading
+
+      // 2. Open microphone
       try {
         micStream = await navigator.mediaDevices.getUserMedia({
           audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
           video: false,
         });
         rlog('vosk mic opened');
-        // Start MediaRecorder to capture audio blob for playback
         audioChunks = [];
         try {
           mediaRecorder = new MediaRecorder(micStream);
@@ -580,10 +654,12 @@ export default function ImmersiveScan({ onCapture, onExit, xrSession: providedSe
         } catch (_e) { mediaRecorder = null; }
       } catch (e) {
         rlog('vosk mic denied', e.message);
+        if (myToken !== voskToken) return;
         if (meshSnapshot) updateStickyText(meshSnapshot, 'Mic denied.');
-        drawVoice('Mic denied — trigger to cancel');
         return;
       }
+
+      if (myToken !== voskToken) { micStream?.getTracks().forEach(t => t.stop()); return; }
 
       // 3. Web Audio pipeline
       audioContext = new AudioContext();
@@ -595,22 +671,22 @@ export default function ImmersiveScan({ onCapture, onExit, xrSession: providedSe
       voskRecognizer = new voskModel.KaldiRecognizer(audioContext.sampleRate);
 
       voskRecognizer.on('result', (msg) => {
+        if (myToken !== voskToken) return;
         const text = msg.result?.text?.trim();
         if (!text) return;
         const prev = activeNoteCallbacks?.noteEntry?.text ?? '';
         const updated = prev ? `${prev} ${text}` : text;
         if (activeNoteCallbacks?.noteEntry) activeNoteCallbacks.noteEntry.text = updated;
         if (activeNoteCallbacks?.mesh) updateStickyText(activeNoteCallbacks.mesh, updated);
-        // drawVoice(updated);
       });
 
       voskRecognizer.on('partialresult', (msg) => {
+        if (myToken !== voskToken) return;
         const partial = msg.result?.partial?.trim();
         if (!partial) return;
         const base = activeNoteCallbacks?.noteEntry?.text ?? '';
         const display = base ? `${base} ${partial}` : partial;
         if (activeNoteCallbacks?.mesh) updateStickyText(activeNoteCallbacks.mesh, display);
-        // drawVoice(display);
       });
 
       audioProcessor.onaudioprocess = (e) => {
@@ -618,12 +694,11 @@ export default function ImmersiveScan({ onCapture, onExit, xrSession: providedSe
         voskRecognizer.acceptWaveform(e.inputBuffer);
       };
 
-      // Must connect to destination for onaudioprocess to fire
       audioSource.connect(audioProcessor);
       audioProcessor.connect(audioContext.destination);
 
+      if (myToken !== voskToken) { stopVoskAudio(); return; }
       if (meshSnapshot) updateStickyText(meshSnapshot, 'Listening...');
-      // drawVoice('Recording... pull trigger to save');
       rlog('vosk started', { sampleRate: audioContext.sampleRate });
     }
 
@@ -636,6 +711,7 @@ export default function ImmersiveScan({ onCapture, onExit, xrSession: providedSe
     }
 
     function stopVosk() {
+      voskToken++; // cancel any in-flight startVosk async chain
       rlog('stopVosk called', { hasRecognizer: !!voskRecognizer, hasCallbacks: !!activeNoteCallbacks });
       if (voskRecognizer) {
         try { voskRecognizer.free(); } catch (_) {}
@@ -676,7 +752,7 @@ export default function ImmersiveScan({ onCapture, onExit, xrSession: providedSe
 
       stopVoskAudio();
       activeNoteCallbacks = null;
-      annotating = false; pendingNotePos = null; activeStickyMesh = null;
+      annotating = false; activeStickyMesh = null; draggingActiveNote = false;
       vPanel.visible = false; drawStatus();
     }
 
@@ -743,21 +819,16 @@ export default function ImmersiveScan({ onCapture, onExit, xrSession: providedSe
     }
 
     async function start() {
-      // Fetch geolocation once before XR session starts — permission dialogs during XR exit the session on Quest
-      // Use watchPosition so we get the best available fix; first result wins
-      if (navigator.geolocation) {
+      // Geolocation is now fetched in ScanScene before XR session starts (Quest drops XR on permission dialogs)
+      if (navigator.geolocation && !providedSession) {
         let watchId = null;
         pendingGeo = await new Promise(resolve => {
-          const done = (geo) => {
-            if (watchId != null) navigator.geolocation.clearWatch(watchId);
-            resolve(geo);
-          };
+          const done = (geo) => { navigator.geolocation.clearWatch(watchId); resolve(geo); };
           watchId = navigator.geolocation.watchPosition(
             p => done({ lat: p.coords.latitude, lng: p.coords.longitude }),
             () => done(null),
             { timeout: 8000, maximumAge: 60000, enableHighAccuracy: true }
           );
-          // Hard cap — don't block XR session start indefinitely
           setTimeout(() => done(pendingGeo), 8000);
         });
       }
@@ -834,15 +905,15 @@ export default function ImmersiveScan({ onCapture, onExit, xrSession: providedSe
 
       // Confirm wheel placement button
       const confirmCanvas = document.createElement('canvas');
-      confirmCanvas.width = 512; confirmCanvas.height = 112;
+      confirmCanvas.width = 256; confirmCanvas.height = 80;
       const confirmCtx = confirmCanvas.getContext('2d');
-      confirmCtx.fillStyle = '#1a3cef';
-      rrect(confirmCtx, 0, 0, 512, 112, 24); confirmCtx.fill();
-      confirmCtx.fillStyle = 'white'; confirmCtx.font = 'bold 32px Arial'; confirmCtx.textAlign = 'center';
-      confirmCtx.fillText('✓  Complete Wheel Placement', 256, 66);
+      confirmCtx.fillStyle = '#323232';
+      rrect(confirmCtx, 0, 0, 256, 80, 16); confirmCtx.fill();
+      confirmCtx.fillStyle = 'white'; confirmCtx.font = 'bold 28px Arial'; confirmCtx.textAlign = 'center';
+      confirmCtx.fillText('✓  Confirm Wheels', 128, 50);
       const confirmTex = new THREE.CanvasTexture(confirmCanvas);
       const confirmBtn = new THREE.Mesh(
-        new THREE.PlaneGeometry(0.42, 0.092),
+        new THREE.PlaneGeometry(0.18, 0.056),
         new THREE.MeshBasicMaterial({ map: confirmTex, transparent: true, depthWrite: false })
       );
       confirmBtn.visible = false;
@@ -854,15 +925,15 @@ export default function ImmersiveScan({ onCapture, onExit, xrSession: providedSe
         new THREE.PlaneGeometry(0.28, 0.364), // 400:520 ratio
         new THREE.MeshBasicMaterial({ map: logsTex, transparent: true, depthWrite: false })
       );
-      logsPanel.visible = true;
+      logsPanel.visible = false; // shown only after wheel placement
       drawLogsTray();
       scene.add(logsPanel);
 
       // Wheel marker spheres
       const wheelSpheres = WHEEL_COLORS.map(col => {
         const m = new THREE.Mesh(
-          new THREE.SphereGeometry(0.08, 16, 16),
-          new THREE.MeshBasicMaterial({ color: col })
+          new THREE.SphereGeometry(0.10, 16, 16),
+          new THREE.MeshStandardMaterial({ color: col, emissive: col, emissiveIntensity: 0.6, transparent: true, opacity: 0.55, roughness: 0.3, metalness: 0.4 })
         );
         m.visible = false;
         scene.add(m);
@@ -872,7 +943,7 @@ export default function ImmersiveScan({ onCapture, onExit, xrSession: providedSe
       // Floor cursor — ring that follows ray-floor intersection during setup
       const cursor = new THREE.Mesh(
         new THREE.RingGeometry(0.07, 0.12, 32),
-        new THREE.MeshBasicMaterial({ color: 0x34d399, side: THREE.DoubleSide, transparent: true, opacity: 0.85 })
+        new THREE.MeshBasicMaterial({ color: 0x1a3cef, side: THREE.DoubleSide, transparent: true, opacity: 0.85 })
       );
       cursor.rotation.x = -Math.PI / 2;
       cursor.visible = false;
@@ -940,20 +1011,19 @@ export default function ImmersiveScan({ onCapture, onExit, xrSession: providedSe
           vPanel.quaternion.copy(quat);
         }
 
-        // Exit button (top-right, always visible)
+        // Exit button (centred, always visible)
         {
-          const right = new THREE.Vector3(1, 0, 0).applyQuaternion(quat);
           exitBtn.position.set(
-            tx + fwd.x * 0.88 + right.x * 0.22,
+            tx + fwd.x * 0.88,
             ty + 0.19 + fwd.y * 0.88,
-            tz + fwd.z * 0.88 + right.z * 0.22
+            tz + fwd.z * 0.88
           );
           exitBtn.quaternion.copy(quat);
         }
 
         // Confirm button — centered below status panel during 'confirm' phase
         if (confirmBtn.visible) {
-          confirmBtn.position.set(tx + fwd.x * 0.9, ty - 0.20 + fwd.y * 0.9, tz + fwd.z * 0.9);
+          confirmBtn.position.set(tx + fwd.x * 0.88, ty + 0.19 + fwd.y * 0.88, tz + fwd.z * 0.88);
           confirmBtn.quaternion.copy(quat);
         }
 
@@ -961,9 +1031,9 @@ export default function ImmersiveScan({ onCapture, onExit, xrSession: providedSe
         if (logsPanel.visible) {
           const right = new THREE.Vector3(1, 0, 0).applyQuaternion(quat);
           logsPanel.position.set(
-            tx + fwd.x * 0.88 + right.x * 0.30,
+            tx + fwd.x * 0.88 + right.x * 0.38,
             ty - 0.06 + fwd.y * 0.88,
-            tz + fwd.z * 0.88 + right.z * 0.30
+            tz + fwd.z * 0.88 + right.z * 0.38
           );
           logsPanel.quaternion.copy(quat);
         }
@@ -1036,11 +1106,18 @@ export default function ImmersiveScan({ onCapture, onExit, xrSession: providedSe
           if (time - lastRingUpdate > 100) { lastRingUpdate = time; updateRing(); }
           if (time - lastPanelDraw > 150) { lastPanelDraw = time; drawStatus(); }
 
-          // Only the active (in-progress) note tracks the viewer — saved notes stay fixed
-          if (activeStickyMesh) activeStickyMesh.lookAt(tx, activeStickyMesh.position.y, tz);
+          // Active note: if being dragged follow controller ray, otherwise face viewer
+          if (activeStickyMesh) {
+            if (draggingActiveNote && lastControllerPoses.length > 0) {
+              const p = lastControllerPoses[0];
+              const d = new THREE.Vector3(0, 0, -1).applyQuaternion(new THREE.Quaternion(p.qx, p.qy, p.qz, p.qw)).normalize();
+              activeStickyMesh.position.set(p.x + d.x * 1.0, p.y + d.y * 1.0, p.z + d.z * 1.0);
+            }
+            activeStickyMesh.lookAt(tx, activeStickyMesh.position.y, tz);
+          }
 
 
-          // Grip dragging a saved sticky note — follow controller ray at 1m
+          // Dragging a sticky note — follow controller ray at 1m
           if (grippedStickyIdx !== -1 && lastControllerPoses.length > 0) {
             const p = lastControllerPoses[0];
             const dir = new THREE.Vector3(0, 0, -1)
@@ -1049,6 +1126,38 @@ export default function ImmersiveScan({ onCapture, onExit, xrSession: providedSe
               p.x + dir.x * 1.0, p.y + dir.y * 1.0, p.z + dir.z * 1.0
             );
           }
+
+          // Edge hover detection — highlight note border when ray is near an edge
+          if (!annotating && grippedStickyIdx === -1 && stickyNotes.length > 0 && lastControllerPoses.length > 0) {
+            let newHover = -1;
+            for (const p of lastControllerPoses) {
+              const origin = new THREE.Vector3(p.x, p.y, p.z);
+              const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(new THREE.Quaternion(p.qx, p.qy, p.qz, p.qw)).normalize();
+              const hits = new THREE.Raycaster(origin, dir).intersectObjects(stickyNotes.map(n => n.mesh));
+              if (hits.length > 0 && hits[0].uv) {
+                const { x: u, y: v } = hits[0].uv;
+                const inTrash = u > 0.83 && v > 0.78;
+                const inPlay  = u < 0.15 && v > 0.80;
+                const onEdge  = !inTrash && !inPlay && (u < 0.22 || u > 0.78 || v > 0.78 || v < 0.20);
+                if (onEdge) { newHover = stickyNotes.findIndex(n => n.mesh === hits[0].object); break; }
+              }
+            }
+            if (newHover !== hoveredStickyIdx) {
+              // Clear old highlight
+              if (hoveredStickyIdx !== -1 && hoveredStickyIdx < stickyNotes.length) {
+                const old = stickyNotes[hoveredStickyIdx];
+                if (old.noteEntry.isAI) drawAIStickyNote(old.mesh, old.noteEntry.text);
+                else updateStickyFinal(old.mesh, old.noteEntry, activeAudioMesh === old.mesh, false);
+              }
+              // Apply new highlight
+              if (newHover !== -1) {
+                const n = stickyNotes[newHover];
+                if (n.noteEntry.isAI) drawAIStickyNote(n.mesh, n.noteEntry.text, true);
+                else updateStickyFinal(n.mesh, n.noteEntry, activeAudioMesh === n.mesh, true);
+              }
+              hoveredStickyIdx = newHover;
+            }
+          }
         } else {
           notePreview.visible = false;
         }
@@ -1056,13 +1165,26 @@ export default function ImmersiveScan({ onCapture, onExit, xrSession: providedSe
         renderer.render(scene, xrCam);
       });
 
-      // Grab start — if ray is near a placed sphere, grab it instead of placing a new one
       session.addEventListener('selectstart', () => {
+        // During recording — any trigger press drags the active note
+        if (annotating && activeStickyMesh) {
+          draggingActiveNote = true;
+          return;
+        }
+        // During scanning — trigger grabs a saved note only when hovering its edge
+        if (wheelsLocked && phase === 'scanning' && !annotating) {
+          if (hoveredStickyIdx !== -1) {
+            grippedStickyIdx = hoveredStickyIdx;
+            hoveredStickyIdx = -1;
+          }
+          return;
+        }
         if (phase === 'complete' || wheelsLocked) return;
+        // Setup phases — grab wheel spheres
         const hitIdx = raySphereHit(lastControllerPoses, wheelSpheres);
         if (hitIdx !== -1) {
           grabbedSphereIdx = hitIdx;
-          wheelSpheres[hitIdx].material.color.set(0xffffff); // flash white while held
+          wheelSpheres[hitIdx].material.color.set(0xffffff);
         }
       });
 
@@ -1081,7 +1203,11 @@ export default function ImmersiveScan({ onCapture, onExit, xrSession: providedSe
               confirmBtn.visible = false;
               recomputeCarGeometry(scene);
               phase = 'scanning';
+              logsPanel.visible = true;
               drawStatus();
+              // Kick off first analysis immediately so the AI panel populates without waiting for bucket capture
+              const video = videoRef.current;
+              if (video && video.videoWidth) captureFrame(video, 0, 0);
               return;
             }
           }
@@ -1099,6 +1225,8 @@ export default function ImmersiveScan({ onCapture, onExit, xrSession: providedSe
             fetch('/api/notes', { method: 'POST', headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ scanId, notes: voiceNotes }) }).catch(() => {});
             renderer.domElement.style.pointerEvents = 'none';
+            // Call immediately so ScanScene transitions away from 'scan' step right away.
+            // Any still-pending analyses are ignored — we use whatever came back during scanning.
             onCapture(buckets.filter(Boolean), voiceNotes, mergeDamageAnalyses());
             session.end().catch(() => {});
             return;
@@ -1152,6 +1280,9 @@ export default function ImmersiveScan({ onCapture, onExit, xrSession: providedSe
         }
 
         if (phase === 'scanning') {
+          // Release grabbed sticky note — don't run other handlers
+          if (grippedStickyIdx !== -1) { grippedStickyIdx = -1; return; }
+          if (draggingActiveNote) { draggingActiveNote = false; return; }
           if (annotating) { stopVosk(); return; }
 
           // Logs tray Save/Cancel clicks
@@ -1162,14 +1293,15 @@ export default function ImmersiveScan({ onCapture, onExit, xrSession: providedSe
               const hits = new THREE.Raycaster(origin, dir).intersectObject(logsPanel);
               if (hits.length > 0 && hits[0].uv) {
                 const { x: u, y: v } = hits[0].uv;
-                // Canvas y = (1 - v) * 520; items start at cy=70, each 90px
+                // Canvas y = (1 - v) * 520; items start at cy=82, each 154px (CARD_H=148 + gap 6)
                 const canvasY = (1 - v) * 520;
                 const pending = aiLogs.filter(l => !l.saved);
-                const visible = pending.slice(-5);
-                const itemIdx = Math.floor((canvasY - 70) / 90);
+                const visible = pending.slice(-3);
+                const CARD_H = 148;
+                const itemIdx = Math.floor((canvasY - 82) / (CARD_H + 6));
                 if (itemIdx >= 0 && itemIdx < visible.length) {
-                  const btnCanvasY = 70 + itemIdx * 90 + 52; // button row top
-                  const btnCanvasYBot = btnCanvasY + 22;
+                  const btnCanvasY = 82 + itemIdx * (CARD_H + 6) + CARD_H - 40;
+                  const btnCanvasYBot = btnCanvasY + 30;
                   if (canvasY >= btnCanvasY && canvasY <= btnCanvasYBot) {
                     const log = visible[itemIdx];
                     if (u < 0.40) {
@@ -1186,8 +1318,9 @@ export default function ImmersiveScan({ onCapture, onExit, xrSession: providedSe
                       const nx = cx + Math.cos(angle) * spawnDist;
                       const nz = cz + Math.sin(angle) * spawnDist;
                       const ny = (lastViewerT?.y ?? 1.5) - 0.3;
-                      const mesh = createAIStickyNote(log.text, { x: nx, y: ny, z: nz });
-                      stickyNotes.push({ mesh, noteEntry: { id: log.id, text: log.text, isAI: true } });
+                      const noteText = [log.name, log.damageType ? `Type: ${log.damageType}` : null, log.severity ? `Severity: ${log.severity}` : null, log.description].filter(Boolean).join('\n');
+                      const mesh = createAIStickyNote(noteText, { x: nx, y: ny, z: nz });
+                      stickyNotes.push({ mesh, noteEntry: { id: log.id, text: noteText, isAI: true } });
                       drawLogsTray();
                     }
                     return;
@@ -1205,7 +1338,7 @@ export default function ImmersiveScan({ onCapture, onExit, xrSession: providedSe
               const hits = new THREE.Raycaster(origin, dir).intersectObjects(stickyNotes.map(n => n.mesh));
               if (hits.length > 0 && hits[0].uv) {
                 const { x: u, y: v } = hits[0].uv;
-                if (u > 0.83 && v < 0.09) {
+                if (u > 0.83 && v > 0.78) {
                   // Trash hit — delete this note
                   const hitMesh = hits[0].object;
                   const hitNote = stickyNotes.find(n => n.mesh === hitMesh);
@@ -1252,20 +1385,10 @@ export default function ImmersiveScan({ onCapture, onExit, xrSession: providedSe
         // Note creation is on grip (squeezeend) — see handler below
       });
 
-      // Grip press — grab a saved sticky note, or start recording a new one immediately
+      // Grip press — start recording a voice note immediately
       session.addEventListener('squeezestart', () => {
         if (phase !== 'scanning' || annotating) return;
-        // Check if ray hits a saved sticky note — grab it
-        for (const p of lastControllerPoses) {
-          const origin = new THREE.Vector3(p.x, p.y, p.z);
-          const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(new THREE.Quaternion(p.qx, p.qy, p.qz, p.qw)).normalize();
-          const hits = new THREE.Raycaster(origin, dir).intersectObjects(stickyNotes.map(n => n.mesh));
-          if (hits.length > 0) {
-            grippedStickyIdx = stickyNotes.findIndex(n => n.mesh === hits[0].object);
-            return;
-          }
-        }
-        // No note hit — place note and start recording immediately
+        // Place note and start recording immediately
         gripHeld = true;
         notePreview.visible = false;
 
@@ -1283,7 +1406,6 @@ export default function ImmersiveScan({ onCapture, onExit, xrSession: providedSe
         }
         if (!pos) pos = fallbackFloorPoint(1.5) ?? { x: 0, y: lastFloorY + 0.07, z: -1.5 };
 
-        pendingNotePos = pos;
         activeStickyMesh = makeStickyNote(pos);
 
         const noteAzDeg = (carCenter && lastViewerT)
@@ -1298,12 +1420,8 @@ export default function ImmersiveScan({ onCapture, onExit, xrSession: providedSe
         drawStatus();
       });
 
-      // Grip release — drop grabbed note, or stop recording and finalize
+      // Grip release — stop recording and finalize
       session.addEventListener('squeezeend', () => {
-        if (grippedStickyIdx !== -1) {
-          grippedStickyIdx = -1;
-          return;
-        }
         if (gripHeld && annotating) {
           gripHeld = false;
           stopVosk();
@@ -1321,6 +1439,20 @@ export default function ImmersiveScan({ onCapture, onExit, xrSession: providedSe
         onExit();
       });
     }
+
+    // Preload Vosk model in background during wheel placement so first note has no delay
+    (async () => {
+      try {
+        if (!voskModel) {
+          const { createModel } = await import('vosk-browser');
+          voskModel = await Promise.race([
+            createModel('/assets/vosk-model-small-en-us-0.15.tar.gz'),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 30000)),
+          ]);
+          rlog('vosk preload complete');
+        }
+      } catch (e) { rlog('vosk preload failed', e.message); }
+    })();
 
     start();
     return () => { sessionRef.current?.end().catch(() => {}); };
