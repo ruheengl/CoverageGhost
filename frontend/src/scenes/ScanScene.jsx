@@ -8,6 +8,8 @@ import { analyzeDamage, checkCoverage, ocrDocument } from '../lib/api';
 
 const isVisionPro = /visionOS/.test(navigator.userAgent);
 
+
+
 const inWebSpatial = /WebSpatial\//.test(navigator.userAgent);
 const SPLAT_URL = '/api/splat';
 const ANIM_MS = 6000;
@@ -117,18 +119,13 @@ function ScanLicenseScreen({ onCapture, onManual }) {
     navigator.mediaDevices?.getUserMedia({ video: { facingMode: 'environment' } })
       .then(stream => {
         streamRef.current = stream;
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.play();
-        }
+        if (videoRef.current) { videoRef.current.srcObject = stream; videoRef.current.play(); }
       })
       .catch(() => {});
     return () => streamRef.current?.getTracks().forEach(t => t.stop());
   }, []);
 
-  function stopStream() {
-    streamRef.current?.getTracks().forEach(t => t.stop());
-  }
+  function stopStream() { streamRef.current?.getTracks().forEach(t => t.stop()); }
 
   async function handleTrigger() {
     if (isVisionPro) { onCapture(null); return; }
@@ -212,10 +209,11 @@ function DriverDetailsResult({ driver, onCapturePhoto, onManual }) {
 function CapturePhotoScreen({ onCapture, onBack }) {
   const videoRef = useRef(null);
   const streamRef = useRef(null);
+  const [preview, setPreview] = useState(null);
 
   useEffect(() => {
     if (isVisionPro) return;
-    navigator.mediaDevices?.getUserMedia({ video: { facingMode: 'user' } })
+    navigator.mediaDevices?.getUserMedia({ video: { facingMode: 'environment' } })
       .then(stream => {
         streamRef.current = stream;
         if (videoRef.current) { videoRef.current.srcObject = stream; videoRef.current.play(); }
@@ -224,30 +222,53 @@ function CapturePhotoScreen({ onCapture, onBack }) {
     return () => streamRef.current?.getTracks().forEach(t => t.stop());
   }, []);
 
-  function handleTrigger() {
+  const DUMMY_PHOTO = 'data:image/svg+xml;base64,' + btoa(`<svg xmlns="http://www.w3.org/2000/svg" width="640" height="480" viewBox="0 0 640 480"><rect width="640" height="480" fill="#1e293b"/><circle cx="320" cy="180" r="80" fill="#334155"/><ellipse cx="320" cy="400" rx="160" ry="100" fill="#334155"/><text x="320" y="470" text-anchor="middle" fill="#64748b" font-size="20" font-family="sans-serif">Driver Photo</text></svg>`);
+
+  function handleCapture() {
+    if (isVisionPro) { setPreview(DUMMY_PHOTO); return; }
+    if (!videoRef.current) return;
+    const canvas = document.createElement('canvas');
+    canvas.width = videoRef.current.videoWidth || 640;
+    canvas.height = videoRef.current.videoHeight || 480;
+    canvas.getContext('2d').drawImage(videoRef.current, 0, 0);
     streamRef.current?.getTracks().forEach(t => t.stop());
-    onCapture();
+    setPreview(canvas.toDataURL('image/jpeg', 0.85));
+  }
+
+  function handleRetake() {
+    setPreview(null);
+    navigator.mediaDevices?.getUserMedia({ video: { facingMode: 'environment' } })
+      .then(stream => {
+        streamRef.current = stream;
+        if (videoRef.current) { videoRef.current.srcObject = stream; videoRef.current.play(); }
+      })
+      .catch(() => {});
   }
 
   return (
     <div className="fade-up" style={CARD}>
       <div style={{ color: 'white', fontSize: 19, fontWeight: 700, marginBottom: 4 }}>Driver Photo</div>
       <div style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13, marginBottom: 16 }}>
-        Face the camera, then pull the trigger.
+        {preview ? 'Review the photo before continuing.' : 'Point the camera at the driver, then pull the trigger.'}
       </div>
       <div style={DIVIDER} />
       <video ref={videoRef} autoPlay playsInline muted style={{ display: 'none' }} />
-      <button className="btn-primary spatial-btn" onClick={handleTrigger}
-        style={{ borderRadius: 12, width: '100%', marginBottom: 10 }}>
-        {isVisionPro ? 'Continue' : 'Capture'}
-      </button>
-      <button className="spatial-btn" onClick={() => { streamRef.current?.getTracks().forEach(t => t.stop()); onBack(); }} style={{
-        width: '100%', padding: '11px',
-        background: 'rgba(30,30,40,0.88)', border: '1px solid rgba(255,255,255,0.12)',
-        borderRadius: 12, color: 'rgba(255,255,255,0.55)', fontSize: 14, cursor: 'pointer',
-      }}>
-        Enter Manually Instead
-      </button>
+      {preview && (
+        <img src={preview} alt="captured" style={{
+          width: '100%', height: 200, objectFit: 'cover', borderRadius: 12, marginBottom: 16, display: 'block',
+        }} />
+      )}
+      {preview ? (
+        <div style={{ display: 'flex', gap: 12 }}>
+          <button className="btn-secondary spatial-btn" onClick={handleRetake} style={{ flex: 1 }}>Retake</button>
+          <button className="btn-primary spatial-btn" onClick={onCapture} style={{ flex: 1 }}>Continue</button>
+        </div>
+      ) : (
+        <button className="btn-primary spatial-btn" onClick={handleCapture}
+          style={{ borderRadius: 12, width: '100%' }}>
+          {isVisionPro ? 'Continue' : 'Capture'}
+        </button>
+      )}
       <div style={{ textAlign: 'center', marginTop: 14 }}>
         <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13 }}>Step 2 of 3</span>
       </div>
@@ -307,7 +328,7 @@ function ScanVehicleRegScreen({ onCapture, onManual }) {
         {busy ? 'Reading…' : isVisionPro ? 'Continue' : 'Capture'}
       </button>
       <button className="spatial-btn" onClick={() => { stopStream(); onManual(); }} style={{
-        width: '100%', padding: '11px',
+        marginTop: 4, width: '100%', padding: '11px',
         background: 'rgba(30,30,40,0.88)', border: '1px solid rgba(255,255,255,0.12)',
         borderRadius: 12, color: 'rgba(255,255,255,0.55)', fontSize: 14, cursor: 'pointer',
       }}>
@@ -368,6 +389,7 @@ function VerifyPolicyDialog({ onDismiss, onVerify }) {
 }
 
 function PolicyActiveScreen({ policyData, onProceed }) {
+  const [loading, setLoading] = useState(false);
   const info = [
     ['Claimant', policyData.claimant || 'James Chen'],
     ['Policy #', policyData.policy_number || 'ALLST-2024-TX-00925'],
@@ -375,6 +397,12 @@ function PolicyActiveScreen({ policyData, onProceed }) {
     ['Valid through', policyData.valid_through || 'Dec 31, 2026'],
     ['Open Claims', policyData.open_claims || 'None'],
   ];
+
+  async function handleProceed() {
+    setLoading(true);
+    await onProceed();
+  }
+
   return (
     <div className="fade-up" style={CARD}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
@@ -392,8 +420,9 @@ function PolicyActiveScreen({ policyData, onProceed }) {
         </div>
       ))}
       <div style={DIVIDER} />
-      <button className="btn-primary spatial-btn" onClick={onProceed} style={{ width: '100%', borderRadius: 12, padding: '14px' }}>
-        Proceed to Scan Vehicle
+      <button className="btn-primary spatial-btn" onClick={handleProceed} disabled={loading}
+        style={{ width: '100%', borderRadius: 12, padding: '14px', opacity: loading ? 0.7 : 1 }}>
+        {loading ? 'Preparing scan…' : 'Proceed to Scan Vehicle'}
       </button>
     </div>
   );
