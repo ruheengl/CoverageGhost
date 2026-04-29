@@ -4,7 +4,7 @@ import PolicyCitation from '../components/PolicyCitation';
 import ClaimHUD from '../components/ClaimHUD';
 import ImmersiveScan from '../components/ImmersiveScan';
 import { enableXRLayer } from '../lib/enableXRLayer';
-import { analyzeDamage, checkCoverage, ocrDocument } from '../lib/api';
+import { checkCoverage, ocrDocument } from '../lib/api';
 
 const isVisionPro = /visionOS/.test(navigator.userAgent);
 
@@ -12,7 +12,7 @@ const isVisionPro = /visionOS/.test(navigator.userAgent);
 
 const inWebSpatial = /WebSpatial\//.test(navigator.userAgent);
 const SPLAT_URL = '/api/splat';
-const ANIM_MS = 6000;
+const ANIM_MS = 2000;
 const SPIN = ['◐', '◓', '◑', '◒'];
 
 const CARD = {
@@ -458,6 +458,7 @@ function DamageScanScreen({ claim, onComplete }) {
   const [immersiveActive, setImmersiveActive] = useState(true);
   const [voiceNotes, setVoiceNotes] = useState([]);
   const [spinIdx, setSpinIdx] = useState(0);
+  const [scanError, setScanError] = useState('');
 
   useEffect(() => {
     const t = setInterval(() => setSpinIdx(i => (i + 1) % 4), 220);
@@ -474,16 +475,7 @@ function DamageScanScreen({ claim, onComplete }) {
       setProgress(Math.min(Math.round(((Date.now() - startTime) / ANIM_MS) * 100), 99));
     }, 150);
     try {
-      const firstFrame = frames.find(f => f?.frameBlob);
-      let damage = { damaged_areas: [], damage_type: 'unknown', severity: 'unknown' };
-      if (firstFrame?.frameBlob) {
-        try {
-          const b64 = await blobToBase64(firstFrame.frameBlob);
-          damage = await analyzeDamage(b64);
-        } catch (e) {
-          console.warn('[ScanScene] analyzeDamage failed, proceeding with empty damage:', e.message);
-        }
-      }
+      const damage = { damaged_areas: [], damage_type: 'unknown', severity: 'unknown' };
       setDamageData(damage);
       let coverageResult = { coverage_decisions: [] };
       try { coverageResult = await checkCoverage(damage); } catch (e) { console.warn('[ScanScene] checkCoverage failed:', e.message); }
@@ -543,6 +535,19 @@ function DamageScanScreen({ claim, onComplete }) {
           </div>
           <ImmersiveScan onCapture={handleImmersiveScan} onExit={() => setImmersiveActive(false)} />
         </>
+      )}
+
+      {stage === 'idle' && !immersiveActive && (
+        <div className="fade-up" style={CARD}>
+          <div style={{ color: 'white', fontSize: 19, fontWeight: 700, marginBottom: 8 }}>AR Session Ended</div>
+          <div style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13, marginBottom: 20 }}>
+            {scanError || 'The immersive session was closed. Tap retry to start again.'}
+          </div>
+          <button className="btn-primary spatial-btn" onClick={() => { setScanError(''); setImmersiveActive(true); }}
+            style={{ width: '100%', borderRadius: 12, padding: '13px' }}>
+            Retry
+          </button>
+        </div>
       )}
 
       {stage === 'coverage' && (
@@ -648,7 +653,7 @@ export default function ScanScene({ claim, onComplete }) {
   );
 }
 
-function blobToBase64(blob) {
+function blobToBase64(blob) { // kept for potential future use
   return new Promise((res, rej) => {
     const r = new FileReader();
     r.onload = () => res(r.result.split(',')[1]);
