@@ -26,10 +26,10 @@ export default function App() {
       )}
       {scene === 'scan' && claim && (
         <ScanScene claim={claim}
-          onComplete={(damage, coverage, covMap, splat, notes) => {
+          onComplete={(damage, coverage, covMap, splat, notes, options = {}) => {
             setDamageData(damage); setCoverageDecisions(coverage);
             setCoverageMap(covMap); setSplatUrl(splat); setVoiceNotes(notes || []);
-            setScene('annotate');
+            setScene(options.nextScene || 'annotate');
           }} />
       )}
       {scene === 'splat-view' && (

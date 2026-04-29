@@ -12,6 +12,7 @@ const isVisionPro = /visionOS/.test(navigator.userAgent);
 
 
 const inWebSpatial = /WebSpatial\//.test(navigator.userAgent);
+const isVisionSpatial = isVisionPro || inWebSpatial;
 const SPLAT_URL = '/api/splat';
 const SPIN = ['◐', '◓', '◑', '◒'];
 
@@ -115,7 +116,7 @@ function ScanLicenseScreen({ onCapture, onManual }) {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (isVisionPro) return;
+    if (isVisionSpatial) return;
     navigator.mediaDevices?.getUserMedia({ video: { facingMode: 'environment' } })
       .then(stream => {
         streamRef.current = stream;
@@ -128,7 +129,7 @@ function ScanLicenseScreen({ onCapture, onManual }) {
   function stopStream() { streamRef.current?.getTracks().forEach(t => t.stop()); }
 
   async function handleTrigger() {
-    if (isVisionPro) { onCapture(null); return; }
+    if (isVisionSpatial) { onCapture(null); return; }
     if (!videoRef.current || busy) return;
     setBusy(true);
     try {
@@ -158,7 +159,7 @@ function ScanLicenseScreen({ onCapture, onManual }) {
       <video ref={videoRef} autoPlay playsInline muted style={{ display: 'none' }} />
       <button className="btn-primary spatial-btn" onClick={handleTrigger}
         style={{ borderRadius: 12, width: '100%', marginBottom: 10 }} disabled={busy}>
-        {busy ? 'Reading…' : isVisionPro ? 'Continue' : 'Capture'}
+        {busy ? 'Reading…' : isVisionSpatial ? 'Continue' : 'Capture'}
       </button>
       <button className="spatial-btn" onClick={() => { stopStream(); onManual(); }} style={{
         marginTop: 10, width: '100%', padding: '11px',
@@ -212,7 +213,7 @@ function CapturePhotoScreen({ onCapture, onBack }) {
   const [preview, setPreview] = useState(null);
 
   useEffect(() => {
-    if (isVisionPro) return;
+    if (isVisionSpatial) return;
     navigator.mediaDevices?.getUserMedia({ video: { facingMode: 'environment' } })
       .then(stream => {
         streamRef.current = stream;
@@ -225,7 +226,7 @@ function CapturePhotoScreen({ onCapture, onBack }) {
   const DUMMY_PHOTO = 'data:image/svg+xml;base64,' + btoa(`<svg xmlns="http://www.w3.org/2000/svg" width="640" height="480" viewBox="0 0 640 480"><rect width="640" height="480" fill="#1e293b"/><circle cx="320" cy="180" r="80" fill="#334155"/><ellipse cx="320" cy="400" rx="160" ry="100" fill="#334155"/><text x="320" y="470" text-anchor="middle" fill="#64748b" font-size="20" font-family="sans-serif">Driver Photo</text></svg>`);
 
   function handleCapture() {
-    if (isVisionPro) { setPreview(DUMMY_PHOTO); return; }
+    if (isVisionSpatial) { setPreview(DUMMY_PHOTO); return; }
     if (!videoRef.current) return;
     const canvas = document.createElement('canvas');
     canvas.width = videoRef.current.videoWidth || 640;
@@ -266,7 +267,7 @@ function CapturePhotoScreen({ onCapture, onBack }) {
       ) : (
         <button className="btn-primary spatial-btn" onClick={handleCapture}
           style={{ borderRadius: 12, width: '100%' }}>
-          {isVisionPro ? 'Continue' : 'Capture'}
+          {isVisionSpatial ? 'Continue' : 'Capture'}
         </button>
       )}
       <div style={{ textAlign: 'center', marginTop: 14 }}>
@@ -282,7 +283,7 @@ function ScanVehicleRegScreen({ onCapture, onManual }) {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (isVisionPro) return;
+    if (isVisionSpatial) return;
     navigator.mediaDevices?.getUserMedia({ video: { facingMode: 'environment' } })
       .then(stream => {
         streamRef.current = stream;
@@ -295,7 +296,7 @@ function ScanVehicleRegScreen({ onCapture, onManual }) {
   function stopStream() { streamRef.current?.getTracks().forEach(t => t.stop()); }
 
   async function handleTrigger() {
-    if (isVisionPro) { onCapture(null); return; }
+    if (isVisionSpatial) { onCapture(null); return; }
     if (!videoRef.current || busy) return;
     setBusy(true);
     try {
@@ -325,7 +326,7 @@ function ScanVehicleRegScreen({ onCapture, onManual }) {
       <video ref={videoRef} autoPlay playsInline muted style={{ display: 'none' }} />
       <button className="btn-primary spatial-btn" onClick={handleTrigger}
         style={{ borderRadius: 12, width: '100%', marginBottom: 10 }} disabled={busy}>
-        {busy ? 'Reading…' : isVisionPro ? 'Continue' : 'Capture'}
+        {busy ? 'Reading…' : isVisionSpatial ? 'Continue' : 'Capture'}
       </button>
       <button className="spatial-btn" onClick={() => { stopStream(); onManual(); }} style={{
         marginTop: 4, width: '100%', padding: '11px',
@@ -493,7 +494,7 @@ export default function ScanScene({ claim, onComplete }) {
     <div style={{ width: '100vw', height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <SideNav />
 
-      {step === 'generating' && (
+      {(step === 'generating' || step === 'generating-report') && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div className="fade-up" style={CARD}>
             <div style={{ textAlign: 'center', padding: '16px 0' }}>
@@ -501,18 +502,22 @@ export default function ScanScene({ claim, onComplete }) {
                 World Labs Marble
               </div>
               <div style={{ fontSize: 38, marginBottom: 12, color: '#1a3cef' }}>{SPIN[spinIdx]}</div>
-              <div style={{ color: 'white', fontSize: 19, fontWeight: 700 }}>Generating 3D Reconstruction</div>
-              <div style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13, marginTop: 8 }}>Analysing coverage…</div>
+              <div style={{ color: 'white', fontSize: 19, fontWeight: 700 }}>
+                {step === 'generating-report' ? 'Generating 3D worlds' : 'Generating 3D Reconstruction'}
+              </div>
+              <div style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13, marginTop: 8 }}>
+                {step === 'generating-report' ? 'Preparing report…' : 'Analysing coverage…'}
+              </div>
             </div>
           </div>
         </div>
       )}
 
-      {step === 'generating' && (
+      {(step === 'generating' || step === 'generating-report') && (
         <ClaimHUD
           claimId={claim.claimId}
           adjuster={claim.adjuster}
-          stage="Processing"
+          stage={step === 'generating-report' ? 'Generating' : 'Processing'}
         />
       )}
 
@@ -564,6 +569,16 @@ export default function ScanScene({ claim, onComplete }) {
         )}
         {step === 'policy-active' && (
           <PolicyActiveScreen policyData={policyData} onProceed={async () => {
+            if (isVisionSpatial) {
+              const damage = { damaged_areas: [], damage_type: 'unknown', severity: 'unknown' };
+              setDamageData(damage);
+              setCoverageDecisions([]);
+              setVoiceNotes([]);
+              setStep('generating-report');
+              await new Promise(resolve => setTimeout(resolve, 1800));
+              onComplete(damage, [], {}, SPLAT_URL, [], { nextScene: 'review' });
+              return;
+            }
             setStep('loading');
             let session = null;
             try {
@@ -623,4 +638,3 @@ export default function ScanScene({ claim, onComplete }) {
     </div>
   );
 }
-
