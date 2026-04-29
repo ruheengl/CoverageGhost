@@ -630,7 +630,7 @@ export default function ScanScene({ claim, onComplete }) {
                 onClick={() => onComplete(damageData, coverageDecisions, covMap, SPLAT_URL, voiceNotes)}
                 style={{ width: '100%', borderRadius: 12, padding: '13px' }}
               >
-                View 3D Reconstruction
+                Generate Report
               </button>
           </div>
         )}
