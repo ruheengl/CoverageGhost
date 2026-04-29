@@ -3,7 +3,7 @@ const path = require('path');
 const fs = require('fs');
 
 const router = express.Router();
-const SPLAT_PATH = path.join(__dirname, '..', 'assets', 'final_car.ply');
+const SPLAT_PATH = path.join(__dirname, '..', 'assets', 'final_car.spz');
 
 router.get('/', (req, res) => {
 
@@ -12,7 +12,7 @@ router.get('/', (req, res) => {
     return res.status(404).json({ error: 'Splat asset not found.' });
   }
   res.setHeader('Content-Type', 'application/octet-stream');
-  res.setHeader('Content-Disposition', 'inline; filename="final_car.ply"');
+  res.setHeader('Content-Disposition', 'inline; filename="final_car.spz"');
   fs.createReadStream(SPLAT_PATH).pipe(res);
 });
 

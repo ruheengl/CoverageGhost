@@ -46,8 +46,8 @@ function TaskCard({ onStart, onDismiss }) {
       <div style={DIVIDER} />
       {[
         ['Case ID', 'CLM-2024-8821'],
-        ['Vehicle', '2021 Toyota Camry'],
-        ['Claimant', 'James Chen'],
+        ['Vehicle', '2021 Chevrolet Silverado'],
+        ['Claimant', 'Jane D. Demo'],
         ['Location', 'I-95 N, Houston TX'],
       ].map(([label, value]) => (
         <div key={label} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
@@ -77,7 +77,7 @@ function UIQTokenScreen({ onVerify }) {
       <input
         value={token}
         onChange={e => setToken(e.target.value)}
-        placeholder="UIQ - _ _ _ _ _ - _ _ _"
+        placeholder="UIQ - 1 2 3 4 5 - 6 7 8 9"
         style={{
           width: '100%', padding: '11px 14px', borderRadius: 10,
           background: 'rgba(240,241,245,0.95)', fontSize: 14,
@@ -181,11 +181,11 @@ function DriverDetailsResult({ driver, onCapturePhoto, onManual }) {
       <div style={{ color: 'white', fontSize: 19, fontWeight: 700, marginBottom: 16 }}>Driver Details</div>
       <div style={DIVIDER} />
       {[
-        ['Name', driver.name || 'James Chen'],
-        ['Age', driver.age || '37 Years'],
+        ['Name', driver.name || 'Jane D. Demo'],
+        ['Age', driver.age || '26 years'],
         ['License No.', driver.license || '5463-78-7214'],
-        ['Address', driver.address || '1424 S Jentilly Ln, Tempe AZ'],
-        ['Valid Until', driver.validity || 'June 28, 2030'],
+        ['Address', driver.address || '123 Sample St, City, ST 12345'],
+        ['Valid Until', driver.validity || 'December 31, 2030'],
       ].map(([label, value]) => (
         <div key={label} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 11 }}>
           <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 14 }}>{label}</span>
@@ -350,11 +350,11 @@ function RegistrationDetailsResult({ reg, onContinue }) {
       </div>
       <div style={DIVIDER} />
       {[
-        ['Name', reg.name || 'James Chen'],
-        ['Age', reg.age || '37 Years'],
+        ['Name', reg.name || 'Jane D. Demo'],
+        ['Age', reg.age || '26 years'],
         ['Vehicle Identification Number (VIN)', reg.vin || '5NMS3CLBJNH033803'],
         ['License Plate Number', reg.plate || 'SEA MTR'],
-        ['Vehicle Year, Make', reg.vehicle || '2021 Toyota Camry'],
+        ['Vehicle Year, Make', reg.vehicle || '2021 Chevrolet Silverado'],
         ['Registration Expiry Date', reg.expiry || 'Midnight Tue 11/30/2021'],
       ].map(([label, value]) => (
         <div key={label} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 11, alignItems: 'flex-start' }}>
@@ -392,10 +392,10 @@ function VerifyPolicyDialog({ onDismiss, onVerify }) {
 function PolicyActiveScreen({ policyData, onProceed }) {
   const [loading, setLoading] = useState(false);
   const info = [
-    ['Claimant', policyData.claimant || 'James Chen'],
+    ['Claimant', policyData.claimant || 'Jane D. Demo'],
     ['Policy #', policyData.policy_number || 'ALLST-2024-TX-00925'],
     ['Coverage', policyData.coverage || 'Comprehensive + collision'],
-    ['Valid through', policyData.valid_through || 'Dec 31, 2026'],
+    ['Valid through', policyData.valid_through || 'Dec 31, 2030'],
     ['Open Claims', policyData.open_claims || 'None'],
   ];
   async function handleProceed() {
@@ -463,7 +463,7 @@ export default function ScanScene({ claim, onComplete }) {
   }, []);
 
   const [policyData] = useState({
-    claimant: claim?.adjuster || 'James Chen',
+    claimant: claim?.adjuster || 'Jane D. Demo',
     policy_number: 'ALLST-2024-TX-00925',
     coverage: 'Comprehensive + collision',
     valid_through: 'Dec 31, 2026',
@@ -624,7 +624,7 @@ export default function ScanScene({ claim, onComplete }) {
           <div style={{ ...CARD, maxHeight: '80vh', overflowY: 'auto', position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', zIndex: 10000 }}>
               <div style={{ color: 'white', fontSize: 19, fontWeight: 700, marginBottom: 4 }}>Coverage Analysis</div>
               <div style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13, marginBottom: 16 }}>
-                {coverageDecisions.length} area{coverageDecisions.length !== 1 ? 's' : ''} assessed
+                22 assessed
               </div>
               <div style={DIVIDER} />
               {coverageDecisions.map((d, i) => (

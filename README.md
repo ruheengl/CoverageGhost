@@ -56,16 +56,6 @@ PORT=3001
 ```
 
 ### 5. Add asset files
-
-Place Teex scan files in `frontend/public/assets/` — get these from the shared team drive:
-
-```
-frontend/public/assets/teex-car.glb
-frontend/public/assets/teex-car.spz
-```
-
----
-
 ## Running
 
 Start both servers in separate terminals.

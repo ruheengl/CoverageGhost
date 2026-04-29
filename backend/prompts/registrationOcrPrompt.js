@@ -17,7 +17,7 @@ Field guidance:
 - age: owner age if visible, otherwise null
 - vin: Vehicle Identification Number (17 characters)
 - plate: license plate number
-- vehicle: year and make/model (e.g. "2021 Toyota Camry")
+- vehicle: year and make/model (e.g. "2021 Chevrolet Silverado")
 - expiry: registration expiry date as printed on the document
 
 If a field is not visible or unreadable, set its value to null.`;

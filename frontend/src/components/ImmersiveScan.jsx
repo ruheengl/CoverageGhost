@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { scanFrame } from '../lib/api';
 
-const BUCKETS = 5;
+const BUCKETS = 12;
 const BUCKET_DEG = 360 / BUCKETS;
 const MIN_BUCKETS_COMPLETE = 0;
 
@@ -273,7 +273,7 @@ export default function ImmersiveScan({ onCapture, onExit, xrSession: providedSe
         const mesh = new THREE.Mesh(geo, mat);
         mesh.position.set(
           carCenter.x + Math.cos(a) * scanRadius,
-          1.2,
+          0.8,
           carCenter.z + Math.sin(a) * scanRadius
         );
         scene.add(mesh);

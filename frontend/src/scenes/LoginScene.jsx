@@ -28,7 +28,7 @@ export default function LoginScene({ onLogin }) {
           padding: '32px 28px 28px',
         }}>
           <div style={{ textAlign: 'center', fontSize: 30, fontWeight: 800, color: '#1a3ecf', letterSpacing: '-0.02em', marginBottom: 32 }}>
-            LOGON
+            LUMEN
           </div>
           <label style={{ fontSize: 13, fontWeight: 500, color: 'rgba(20,20,50,0.80)', display: 'block', marginBottom: 6 }}>
             Agent ID<span style={{ color: '#cc2222' }}>*</span>
@@ -36,7 +36,7 @@ export default function LoginScene({ onLogin }) {
           <input
             value={agentId}
             onChange={e => setAgentId(e.target.value)}
-            placeholder="Select Content"
+            placeholder="agentRivera"
             style={{ width: '100%', padding: '11px 14px', background: 'rgba(245,246,252,0.97)', borderRadius: 10, fontSize: 14, color: '#1a1a2e', marginBottom: 16, display: 'block', boxSizing: 'border-box' }}
           />
           <label style={{ fontSize: 13, fontWeight: 500, color: 'rgba(20,20,50,0.80)', display: 'block', marginBottom: 6 }}>
@@ -46,7 +46,7 @@ export default function LoginScene({ onLogin }) {
             type="password"
             value={password}
             onChange={e => setPassword(e.target.value)}
-            placeholder="Select Content"
+            placeholder="********"
             style={{ width: '100%', padding: '11px 14px', background: 'rgba(245,246,252,0.97)', borderRadius: 10, fontSize: 14, color: '#1a1a2e', display: 'block', boxSizing: 'border-box' }}
           />
         </div>

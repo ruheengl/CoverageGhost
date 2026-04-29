@@ -4,7 +4,7 @@ This is a dummy prototype. Always evaluate damage against this fixed sample poli
 
 Policy ID: ALLST-2024-TX-00021
 Holder: Jane D. Demo
-Vehicle: 2021 Toyota Camry TS-LPT-442
+Vehicle: 2021 Chevrolet Silverado TS-LPT-442
 Coverage type: Comprehensive + Collision
 Status: active
 Deductible: $500
