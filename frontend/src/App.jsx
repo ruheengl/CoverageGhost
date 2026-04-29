@@ -4,7 +4,6 @@ import LoginScene from './scenes/LoginScene';
 import CameraBackground from './components/CameraBackground';
 import ScanScene from './scenes/ScanScene';
 import ImmersiveViewer from './components/ImmersiveViewer';
-import AnnotateScene from './scenes/AnnotateScene';
 import ReviewScene from './scenes/ReviewScene';
 import './index.css';
 
@@ -13,10 +12,7 @@ export default function App() {
   const [claim, setClaim] = useState(null);
   const [damageData, setDamageData] = useState(null);
   const [coverageDecisions, setCoverageDecisions] = useState([]);
-  const [coverageMap, setCoverageMap] = useState({});
   const [splatUrl, setSplatUrl] = useState(null);
-  const [voiceNotes, setVoiceNotes] = useState([]);
-  const [viewerSession, setViewerSession] = useState(null);
 
   return (
     <div style={{ width: '100vw', height: '100vh', overflow: 'hidden' }}>
@@ -26,26 +22,21 @@ export default function App() {
       )}
       {scene === 'scan' && claim && (
         <ScanScene claim={claim}
-          onComplete={(damage, coverage, covMap, splat, notes, options = {}) => {
+          onComplete={(damage, coverage, covMap, splat, notes) => {
+            void covMap;
+            void notes;
             setDamageData(damage); setCoverageDecisions(coverage);
-            setCoverageMap(covMap); setSplatUrl(splat); setVoiceNotes(notes || []);
-            setScene(options.nextScene || 'annotate');
+            setSplatUrl(splat);
+            setScene('review');
           }} />
       )}
       {scene === 'splat-view' && (
         <ImmersiveViewer
           splatUrl={splatUrl}
           damageData={damageData}
-          xrSession={viewerSession}
-          onComplete={() => setScene('annotate')}
-          onExit={() => setScene('annotate')}
+          onComplete={() => setScene('review')}
+          onExit={() => setScene('review')}
         />
-      )}
-      {scene === 'annotate' && (
-        <AnnotateScene claim={claim} damageData={damageData}
-          coverageDecisions={coverageDecisions} coverageMap={coverageMap}
-          splatUrl={splatUrl} voiceNotes={voiceNotes}
-          onComplete={() => setScene('review')} />
       )}
       {scene === 'review' && (
         <ReviewScene claim={claim} damageData={damageData}
