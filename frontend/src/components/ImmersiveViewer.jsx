@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { SparkRenderer, SplatMesh } from '@sparkjsdev/spark';
 import * as THREE from 'three';
 
-export default function ImmersiveViewer({ splatUrl, damageData, onComplete, onExit }) {
+export default function ImmersiveViewer({ splatUrl, damageData, onComplete, onExit, xrSession: providedSession }) {
   const sessionRef = useRef(null);
 
   useEffect(() => {
@@ -33,16 +33,17 @@ export default function ImmersiveViewer({ splatUrl, damageData, onComplete, onEx
     }
 
     async function start() {
-      try {
-        session = await navigator.xr.requestSession('immersive-ar', {
-          requiredFeatures: ['local-floor', 'unbounded'],
-          optionalFeatures: ['hand-tracking'],
-        });
+      if (providedSession) {
+        session = providedSession;
         sessionRef.current = session;
-      } catch (e) {
-        console.error('[ImmersiveViewer] XR session failed:', e);
-        onExit();
-        return;
+      } else {
+        try {
+          session = await navigator.xr.requestSession('immersive-ar', {
+            requiredFeatures: ['local-floor', 'unbounded'],
+            optionalFeatures: ['hand-tracking'],
+          });
+          sessionRef.current = session;
+        } catch (e) { console.error('[ImmersiveViewer] XR session failed:', e); onExit(); return; }
       }
 
       // antialias: false — MSAA framebuffers are incompatible with WebXR framebuffer on Meta Quest

@@ -16,6 +16,7 @@ export default function App() {
   const [coverageMap, setCoverageMap] = useState({});
   const [splatUrl, setSplatUrl] = useState(null);
   const [voiceNotes, setVoiceNotes] = useState([]);
+  const [viewerSession, setViewerSession] = useState(null);
 
   return (
     <div style={{ width: '100vw', height: '100vh', overflow: 'hidden' }}>
@@ -28,13 +29,14 @@ export default function App() {
           onComplete={(damage, coverage, covMap, splat, notes) => {
             setDamageData(damage); setCoverageDecisions(coverage);
             setCoverageMap(covMap); setSplatUrl(splat); setVoiceNotes(notes || []);
-            setScene('splat-view');
+            setScene('annotate');
           }} />
       )}
       {scene === 'splat-view' && (
         <ImmersiveViewer
           splatUrl={splatUrl}
           damageData={damageData}
+          xrSession={viewerSession}
           onComplete={() => setScene('annotate')}
           onExit={() => setScene('annotate')}
         />

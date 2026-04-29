@@ -1033,6 +1033,7 @@ export default function ImmersiveScan({ onCapture, onExit, xrSession: providedSe
             phase = 'complete';
             fetch('/api/notes', { method: 'POST', headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ scanId, notes: voiceNotes }) }).catch(() => {});
+            renderer.domElement.style.pointerEvents = 'none';
             onCapture(buckets.filter(Boolean), voiceNotes);
             session.end().catch(() => {});
             return;

@@ -10,9 +10,9 @@ const isVisionPro = /visionOS/.test(navigator.userAgent);
 
 
 
+
 const inWebSpatial = /WebSpatial\//.test(navigator.userAgent);
 const SPLAT_URL = '/api/splat';
-const ANIM_MS = 2000;
 const SPIN = ['◐', '◓', '◑', '◒'];
 
 const CARD = {
@@ -443,14 +443,15 @@ function LoadingScreen() {
   );
 }
 
-// ─── Damage Scan ──────────────────────────────────────────────────────────────
+// ─── Main ScanScene ───────────────────────────────────────────────────────────
 
-function DamageScanScreen({ claim, onComplete, xrSession }) {
-  const [stage, setStage] = useState('idle');
+export default function ScanScene({ claim, onComplete }) {
+  const [step, setStep] = useState('task');
+  const [driver, setDriver] = useState({});
+  const [reg, setReg] = useState({});
+  const [xrSession, setXrSession] = useState(null);
   const [coverageDecisions, setCoverageDecisions] = useState([]);
   const [damageData, setDamageData] = useState(null);
-  const [progress, setProgress] = useState(0);
-  const [immersiveActive, setImmersiveActive] = useState(true);
   const [voiceNotes, setVoiceNotes] = useState([]);
   const [spinIdx, setSpinIdx] = useState(0);
   const [scanError, setScanError] = useState('');
@@ -460,29 +461,28 @@ function DamageScanScreen({ claim, onComplete, xrSession }) {
     return () => clearInterval(t);
   }, []);
 
+  const [policyData] = useState({
+    claimant: claim?.adjuster || 'James Chen',
+    policy_number: 'ALLST-2024-TX-00925',
+    coverage: 'Comprehensive + collision',
+    valid_through: 'Dec 31, 2026',
+    open_claims: 'None',
+  });
+
   async function handleImmersiveScan(frames, notes) {
     setVoiceNotes(notes);
-    setImmersiveActive(false);
-    setStage('generating');
-    setProgress(0);
-    const startTime = Date.now();
-    const animTimer = setInterval(() => {
-      setProgress(Math.min(Math.round(((Date.now() - startTime) / ANIM_MS) * 100), 99));
-    }, 150);
+    setStep('generating');
     try {
       const damage = { damaged_areas: [], damage_type: 'unknown', severity: 'unknown' };
       setDamageData(damage);
       let coverageResult = { coverage_decisions: [] };
       try { coverageResult = await checkCoverage(damage); } catch (e) { console.warn('[ScanScene] checkCoverage failed:', e.message); }
       setCoverageDecisions(coverageResult.coverage_decisions || []);
-      const remaining = ANIM_MS - (Date.now() - startTime);
-      if (remaining > 0) await sleep(remaining);
-      clearInterval(animTimer); setProgress(100); setStage('coverage');
+      setStep('coverage');
     } catch (err) {
       console.error('[ScanScene] immersive error:', err);
-      clearInterval(animTimer);
       setScanError('Analysis failed. Check your connection and try again.');
-      setStage('idle');
+      setStep('retry');
     }
   }
 
@@ -490,34 +490,33 @@ function DamageScanScreen({ claim, onComplete, xrSession }) {
   coverageDecisions.forEach(d => { covMap[d.area_name] = d.coverage_status; });
 
   return (
-    <>
-      {stage === 'generating' && (
-        <div style={{
-          position: 'fixed', inset: 0, background: '#020617', zIndex: 100,
-          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'white',
-        }}>
-          <div style={{ fontSize: 11, letterSpacing: 4, color: '#1a3cef', marginBottom: 20, textTransform: 'uppercase', fontWeight: 600 }}>
-            World Labs Marble
+    <div style={{ width: '100vw', height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <SideNav />
+
+      {step === 'generating' && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div className="fade-up" style={CARD}>
+            <div style={{ textAlign: 'center', padding: '16px 0' }}>
+              <div style={{ fontSize: 11, letterSpacing: 4, color: '#1a3cef', marginBottom: 16, textTransform: 'uppercase', fontWeight: 600 }}>
+                World Labs Marble
+              </div>
+              <div style={{ fontSize: 38, marginBottom: 12, color: '#1a3cef' }}>{SPIN[spinIdx]}</div>
+              <div style={{ color: 'white', fontSize: 19, fontWeight: 700 }}>Generating 3D Reconstruction</div>
+              <div style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13, marginTop: 8 }}>Analysing coverage…</div>
+            </div>
           </div>
-          <div style={{ fontSize: 38, marginBottom: 18, color: '#1a3cef' }}>{SPIN[spinIdx]}</div>
-          <div style={{ fontSize: 21, fontWeight: 700, marginBottom: 26 }}>Generating 3D Reconstruction</div>
-          <div style={{ width: 320, height: 5, background: 'rgba(255,255,255,0.08)', borderRadius: 6, overflow: 'hidden', marginBottom: 10 }}>
-            <div style={{ width: `${progress}%`, height: '100%', background: 'linear-gradient(90deg,#1a3cef,#34d399)', transition: 'width 0.15s linear', borderRadius: 6 }} />
-          </div>
-          <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.35)' }}>{progress}%</div>
         </div>
       )}
 
-      {stage !== 'idle' && (
+      {step === 'generating' && (
         <ClaimHUD
           claimId={claim.claimId}
           adjuster={claim.adjuster}
-          stage={stage === 'coverage' ? 'Coverage Active' : 'Processing'}
-          progress={stage === 'scanning' ? progress : undefined}
+          stage="Processing"
         />
       )}
 
-      {stage === 'idle' && immersiveActive && (
+      {step === 'scan' && (
         <>
           <div style={{
             position: 'fixed', inset: 0, background: '#020617', zIndex: 50,
@@ -528,81 +527,10 @@ function DamageScanScreen({ claim, onComplete, xrSession }) {
             <div style={{ fontSize: 17, fontWeight: 600, marginBottom: 8 }}>Starting Immersive Scan</div>
             <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.45)' }}>Launching AR session…</div>
           </div>
-          <ImmersiveScan onCapture={handleImmersiveScan} onExit={() => setImmersiveActive(false)} xrSession={xrSession} />
+          <ImmersiveScan onCapture={handleImmersiveScan} onExit={() => { setScanError(''); setStep('retry'); }} xrSession={xrSession} />
         </>
       )}
 
-      {stage === 'idle' && !immersiveActive && (
-        <div className="fade-up" style={CARD}>
-          <div style={{ color: 'white', fontSize: 19, fontWeight: 700, marginBottom: 8 }}>AR Session Ended</div>
-          <div style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13, marginBottom: 20 }}>
-            {scanError || 'The immersive session was closed. Tap retry to start again.'}
-          </div>
-          <button className="btn-primary spatial-btn" onClick={() => { setScanError(''); setImmersiveActive(true); }}
-            style={{ width: '100%', borderRadius: 12, padding: '13px' }}>
-            Retry
-          </button>
-        </div>
-      )}
-
-      {stage === 'coverage' && (
-        <div style={{
-          position: 'fixed', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-          background: 'rgba(2,6,23,0.6)', zIndex: 10,
-        }}>
-          <div style={{ ...CARD, maxHeight: '80vh', overflowY: 'auto' }}>
-            <div style={{ color: 'white', fontSize: 19, fontWeight: 700, marginBottom: 4 }}>Coverage Analysis</div>
-            <div style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13, marginBottom: 16 }}>
-              {coverageDecisions.length} area{coverageDecisions.length !== 1 ? 's' : ''} assessed
-            </div>
-            <div style={DIVIDER} />
-            {coverageDecisions.map((d, i) => (
-              <div key={i} style={{
-                marginBottom: 10, padding: '10px 12px', borderRadius: 10,
-                background: 'rgba(255,255,255,0.05)',
-                borderLeft: `3px solid ${STATUS_COLORS[d.coverage_status] || '#94a3b8'}`,
-              }}>
-                <div style={{ fontWeight: 600, fontSize: 13, color: 'white', marginBottom: 2 }}>{d.area_name}</div>
-                <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.55)' }}>{d.reason}</div>
-              </div>
-            ))}
-            {coverageDecisions.length === 0 && (
-              <div style={{ color: 'rgba(255,255,255,0.35)', fontSize: 13, marginBottom: 12 }}>No coverage data available.</div>
-            )}
-            <div style={DIVIDER} />
-            <button
-              className="btn-primary spatial-btn"
-              onClick={() => onComplete(damageData, coverageDecisions, covMap, SPLAT_URL, voiceNotes)}
-              style={{ width: '100%', borderRadius: 12, padding: '13px' }}
-            >
-              View 3D Reconstruction
-            </button>
-          </div>
-        </div>
-      )}
-    </>
-  );
-}
-
-// ─── Main ScanScene ───────────────────────────────────────────────────────────
-
-export default function ScanScene({ claim, onComplete }) {
-  const [step, setStep] = useState('task');
-  const [driver, setDriver] = useState({});
-  const [reg, setReg] = useState({});
-  const [xrSession, setXrSession] = useState(null);
-
-  const [policyData] = useState({
-    claimant: claim?.adjuster || 'James Chen',
-    policy_number: 'ALLST-2024-TX-00925',
-    coverage: 'Comprehensive + collision',
-    valid_through: 'Dec 31, 2026',
-    open_claims: 'None',
-  });
-
-  return (
-    <div style={{ width: '100vw', height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <SideNav />
       <div style={{ position: 'relative', zIndex: 10 }}>
         {step === 'task' && (
           <TaskCard onStart={() => setStep('uiq')} onDismiss={() => {}} />
@@ -649,21 +577,50 @@ export default function ScanScene({ claim, onComplete }) {
           }} />
         )}
         {step === 'loading' && <LoadingScreen />}
-        {step === 'scan' && (
-          <DamageScanScreen claim={claim} onComplete={onComplete} xrSession={xrSession} />
+        {step === 'retry' && (
+          <div className="fade-up" style={{ ...CARD, position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', zIndex: 10000 }}>
+            <div style={{ color: 'white', fontSize: 19, fontWeight: 700, marginBottom: 8 }}>AR Session Ended</div>
+            <div style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13, marginBottom: 20 }}>
+              {scanError || 'The immersive session was closed. Tap retry to start again.'}
+            </div>
+            <button className="btn-primary spatial-btn" onClick={() => { setScanError(''); setStep('scan'); }}
+              style={{ width: '100%', borderRadius: 12, padding: '13px' }}>
+              Retry
+            </button>
+          </div>
+        )}
+        {step === 'coverage' && (
+          <div style={{ ...CARD, maxHeight: '80vh', overflowY: 'auto', position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', zIndex: 10000 }}>
+              <div style={{ color: 'white', fontSize: 19, fontWeight: 700, marginBottom: 4 }}>Coverage Analysis</div>
+              <div style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13, marginBottom: 16 }}>
+                {coverageDecisions.length} area{coverageDecisions.length !== 1 ? 's' : ''} assessed
+              </div>
+              <div style={DIVIDER} />
+              {coverageDecisions.map((d, i) => (
+                <div key={i} style={{
+                  marginBottom: 10, padding: '10px 12px', borderRadius: 10,
+                  background: 'rgba(255,255,255,0.05)',
+                  borderLeft: `3px solid ${STATUS_COLORS[d.coverage_status] || '#94a3b8'}`,
+                }}>
+                  <div style={{ fontWeight: 600, fontSize: 13, color: 'white', marginBottom: 2 }}>{d.area_name}</div>
+                  <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.55)' }}>{d.reason}</div>
+                </div>
+              ))}
+              {coverageDecisions.length === 0 && (
+                <div style={{ color: 'rgba(255,255,255,0.35)', fontSize: 13, marginBottom: 12 }}>No coverage data available.</div>
+              )}
+              <div style={DIVIDER} />
+              <button
+                className="btn-primary spatial-btn"
+                onClick={() => onComplete(damageData, coverageDecisions, covMap, SPLAT_URL, voiceNotes)}
+                style={{ width: '100%', borderRadius: 12, padding: '13px' }}
+              >
+                View 3D Reconstruction
+              </button>
+          </div>
         )}
       </div>
     </div>
   );
 }
 
-function blobToBase64(blob) { // kept for potential future use
-  return new Promise((res, rej) => {
-    const r = new FileReader();
-    r.onload = () => res(r.result.split(',')[1]);
-    r.onerror = rej;
-    r.readAsDataURL(blob);
-  });
-}
-
-function sleep(ms) { return new Promise(res => setTimeout(res, ms)); }
