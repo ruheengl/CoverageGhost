@@ -19,6 +19,25 @@ function midDist(a, b) {
   return Math.hypot(a.mid.x - b.mid.x, a.mid.y - b.mid.y, a.mid.z - b.mid.z);
 }
 
+function midPoint(a, b) {
+  return new THREE.Vector3((a.mid.x + b.mid.x) / 2, (a.mid.y + b.mid.y) / 2, (a.mid.z + b.mid.z) / 2);
+}
+
+function getInputPose(inputSource, frame, refSpace) {
+  if (!inputSource?.targetRaySpace) return null;
+  const pose = frame.getPose(inputSource.targetRaySpace, refSpace);
+  if (!pose) return null;
+  const p = pose.transform.position;
+  const q = pose.transform.orientation;
+  const origin = new THREE.Vector3(p.x, p.y, p.z);
+  const quat = new THREE.Quaternion(q.x, q.y, q.z, q.w);
+  return {
+    origin,
+    quat,
+    direction: new THREE.Vector3(0, 0, -1).applyQuaternion(quat).normalize(),
+  };
+}
+
 export default function ImmersiveViewer({ splatUrl, damageData, onComplete, onExit, xrSession: providedSession }) {
   const sessionRef = useRef(null);
 
@@ -29,12 +48,19 @@ export default function ImmersiveViewer({ splatUrl, damageData, onComplete, onEx
     let butterfly = null;
     let leftHand = null, rightHand = null;
     const prevPinch = { left: null, right: null };
-    let bothPinchStart = null;
+    const inputPoses = new Map();
+    const activeControllers = new Map();
+    const controllerPair = { prevDistance: null, prevAngle: null };
 
     const pCanvas = document.createElement('canvas');
     pCanvas.width = 512; pCanvas.height = 200;
     const pc = pCanvas.getContext('2d');
     let pTex;
+
+    const exitCanvas = document.createElement('canvas');
+    exitCanvas.width = 256; exitCanvas.height = 96;
+    const exitCtx = exitCanvas.getContext('2d');
+    let exitTex, exitBtn;
 
     function drawPanel(line1, line2 = '') {
       pc.clearRect(0, 0, 512, 200);
@@ -48,9 +74,23 @@ export default function ImmersiveViewer({ splatUrl, damageData, onComplete, onEx
       pc.fillText(line1, 256, 84);
       if (line2) { pc.fillStyle = 'rgba(255,255,255,0.55)'; pc.font = '15px Arial'; pc.fillText(line2, 256, 114); }
       pc.fillStyle = 'rgba(255,255,255,0.35)'; pc.font = '15px Arial';
-      pc.fillText('Pinch & drag → rotate  |  Both hands → scale', 256, 155);
-      pc.fillText('Hold both pinches 1.5s to exit', 256, 178);
+      pc.fillText('Hands: left pinch move · right pinch rotate · both scale', 256, 155);
+      pc.fillText('Controllers: trigger move/rotate · two triggers scale · Exit closes', 256, 178);
       pTex.needsUpdate = true;
+    }
+
+    function drawExitButton() {
+      exitCtx.clearRect(0, 0, 256, 96);
+      exitCtx.fillStyle = 'rgba(248,113,113,0.88)';
+      rrect(exitCtx, 0, 0, 256, 96, 24); exitCtx.fill();
+      exitCtx.strokeStyle = 'rgba(255,255,255,0.30)';
+      exitCtx.lineWidth = 3;
+      rrect(exitCtx, 0, 0, 256, 96, 24); exitCtx.stroke();
+      exitCtx.fillStyle = 'white';
+      exitCtx.font = 'bold 34px Arial';
+      exitCtx.textAlign = 'center';
+      exitCtx.fillText('Exit', 128, 60);
+      exitTex.needsUpdate = true;
     }
 
     async function start() {
@@ -99,6 +139,14 @@ export default function ImmersiveViewer({ splatUrl, damageData, onComplete, onEx
       );
       scene.add(panel);
 
+      exitTex = new THREE.CanvasTexture(exitCanvas);
+      exitBtn = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.22, 0.0825),
+        new THREE.MeshBasicMaterial({ map: exitTex, transparent: true, depthWrite: false })
+      );
+      scene.add(exitBtn);
+      drawExitButton();
+
       const areaCount = damageData?.affected_areas?.length ?? damageData?.damaged_areas?.length ?? 0;
       drawPanel('Loading splat...', areaCount > 0 ? `${areaCount} damage area${areaCount !== 1 ? 's' : ''} detected` : '');
 
@@ -125,6 +173,52 @@ export default function ImmersiveViewer({ splatUrl, damageData, onComplete, onEx
         for (const src of frame.session.inputSources) {
           if (src.hand && src.handedness === 'left')  leftHand  = src.hand;
           if (src.hand && src.handedness === 'right') rightHand = src.hand;
+          const pose = getInputPose(src, frame, refSpace);
+          if (pose) inputPoses.set(src, pose);
+        }
+
+        if (splatPlaced && butterfly) {
+          const active = [...activeControllers.entries()]
+            .map(([inputSource, state]) => ({ inputSource, state, pose: getInputPose(inputSource, frame, refSpace) }))
+            .filter(item => item.pose);
+
+          if (active.length >= 2) {
+            const a = active[0].pose.origin;
+            const b = active[1].pose.origin;
+            const midpoint = a.clone().add(b).multiplyScalar(0.5);
+            butterfly.position.lerp(midpoint, 0.22);
+
+            const distance = a.distanceTo(b);
+            if (controllerPair.prevDistance && controllerPair.prevDistance > 0.001) {
+              const scale = Math.max(0.2, Math.min(5, butterfly.scale.x * (distance / controllerPair.prevDistance)));
+              butterfly.scale.setScalar(scale);
+            }
+
+            const angle = Math.atan2(b.x - a.x, b.z - a.z);
+            if (controllerPair.prevAngle !== null) {
+              butterfly.rotation.y += angle - controllerPair.prevAngle;
+            }
+            controllerPair.prevDistance = distance;
+            controllerPair.prevAngle = angle;
+          } else {
+            controllerPair.prevDistance = null;
+            controllerPair.prevAngle = null;
+          }
+
+          if (active.length === 1) {
+            const { state, pose } = active[0];
+            if (state.distance === null) {
+              state.distance = Math.max(0.3, pose.origin.distanceTo(butterfly.position));
+            }
+            const target = pose.origin.clone().addScaledVector(pose.direction, state.distance);
+            butterfly.position.lerp(target, 0.35);
+
+            if (state.prevDirection) {
+              butterfly.rotation.y += (pose.direction.x - state.prevDirection.x) * 2.5;
+              butterfly.rotation.x -= (pose.direction.y - state.prevDirection.y) * 2;
+            }
+            state.prevDirection = pose.direction.clone();
+          }
         }
 
         // Hand gesture interaction (only after splat placed)
@@ -132,8 +226,16 @@ export default function ImmersiveViewer({ splatUrl, damageData, onComplete, onEx
           const left  = getPinch(leftHand,  frame, refSpace);
           const right = getPinch(rightHand, frame, refSpace);
 
+          const leftMid = left?.pinching ? new THREE.Vector3(left.mid.x, left.mid.y, left.mid.z) : null;
+          const rightMid = right?.pinching ? new THREE.Vector3(right.mid.x, right.mid.y, right.mid.z) : null;
+          if ((leftMid && exitBtn && leftMid.distanceTo(exitBtn.position) < 0.13) ||
+              (rightMid && exitBtn && rightMid.distanceTo(exitBtn.position) < 0.13)) {
+            session.end().catch(() => {});
+            return;
+          }
+
           if (left?.pinching && right?.pinching) {
-            // Both hands pinching → scale or hold-to-exit
+            // Both hands pinching scales the reconstruction.
             if (prevPinch.left && prevPinch.right) {
               const prev = midDist(prevPinch.left, prevPinch.right);
               const curr = midDist(left, right);
@@ -143,17 +245,23 @@ export default function ImmersiveViewer({ splatUrl, damageData, onComplete, onEx
                 butterfly.scale.setScalar(s);
               }
             }
-            // Hold both pinches 1.5s → exit
-            if (!bothPinchStart) bothPinchStart = time;
-            else if (time - bothPinchStart > 5000) {
-              session.end().catch(() => {});
-            }
+            const midpoint = midPoint(left, right);
+            butterfly.position.lerp(midpoint, 0.12);
           } else {
-            bothPinchStart = null;
             if (left?.pinching && prevPinch.left) {
-              // Single left-hand pinch drag → rotate Y
+              // Left hand pinch moves the reconstruction.
               const dx = left.mid.x - prevPinch.left.mid.x;
+              const dy = left.mid.y - prevPinch.left.mid.y;
+              const dz = left.mid.z - prevPinch.left.mid.z;
+              butterfly.position.x += dx;
+              butterfly.position.y += dy;
+              butterfly.position.z += dz;
+            } else if (right?.pinching && prevPinch.right) {
+              // Right hand pinch rotates the reconstruction.
+              const dx = right.mid.x - prevPinch.right.mid.x;
+              const dy = right.mid.y - prevPinch.right.mid.y;
               butterfly.rotation.y += dx * 8;
+              butterfly.rotation.x += dy * 4;
             }
           }
 
@@ -165,7 +273,36 @@ export default function ImmersiveViewer({ splatUrl, damageData, onComplete, onEx
         panel.position.set(tx + fwd.x * 0.9, ty + 0.1 + fwd.y * 0.9, tz + fwd.z * 0.9);
         panel.quaternion.copy(quat);
 
+        const right = new THREE.Vector3(1, 0, 0).applyQuaternion(quat);
+        exitBtn.position.set(
+          tx + fwd.x * 0.9 + right.x * 0.41,
+          ty + 0.21 + fwd.y * 0.9,
+          tz + fwd.z * 0.9 + right.z * 0.41
+        );
+        exitBtn.quaternion.copy(quat);
+
         renderer.render(scene, camera);
+      });
+
+      session.addEventListener('selectstart', event => {
+        if (event.inputSource.hand) return;
+        const pose = inputPoses.get(event.inputSource);
+        if (pose && exitBtn) {
+          const hits = new THREE.Raycaster(pose.origin, pose.direction).intersectObject(exitBtn);
+          if (hits.length) {
+            session.end().catch(() => {});
+            return;
+          }
+        }
+        activeControllers.set(event.inputSource, { distance: null, prevDirection: null });
+      });
+
+      session.addEventListener('selectend', event => {
+        activeControllers.delete(event.inputSource);
+        if (activeControllers.size < 2) {
+          controllerPair.prevDistance = null;
+          controllerPair.prevAngle = null;
+        }
       });
 
       session.addEventListener('end', () => {

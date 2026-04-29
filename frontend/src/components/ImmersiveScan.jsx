@@ -4,7 +4,7 @@ import { scanFrame } from '../lib/api';
 
 const BUCKETS = 5;
 const BUCKET_DEG = 360 / BUCKETS;
-const MIN_BUCKETS_COMPLETE = 0;
+const MIN_BUCKETS_COMPLETE = 18;
 
 // 4-wheel setup phases in order
 const WHEEL_PHASES = ['setup-fl', 'setup-fr', 'setup-rr', 'setup-rl'];
@@ -18,7 +18,7 @@ export default function ImmersiveScan({ onCapture, onExit, xrSession: providedSe
   useEffect(() => {
     let phase = 'setup-fl';
     let wheelPoints = [null, null, null, null]; // fl, fr, rr, rl
-    let carCenter = null, carLength = 4.5, scanRadius = 3.5;
+    let carCenter = null, carLength = 4.5, scanRadius = 2.5;
     let buckets = new Array(BUCKETS).fill(null);
     let voiceNotes = [];
     let annotating = false;
@@ -38,7 +38,6 @@ export default function ImmersiveScan({ onCapture, onExit, xrSession: providedSe
     let gripHeld = false;         // grip button currently held (recording in progress)
     let grippedStickyIdx = -1;    // index of sticky note being moved (-1 = none)
     const scanId = Date.now();
-    let analysisInFlight = false;
     let lastControllerPoses = []; // cached each XR frame from targetRaySpace
     let lastDebugPt = null; // last placed wheel point for on-screen debug
     let grabbedSphereIdx = -1; // index of wheel sphere currently being dragged (-1 = none)
@@ -63,6 +62,7 @@ export default function ImmersiveScan({ onCapture, onExit, xrSession: providedSe
     const lc = logsCanvas.getContext('2d');
     let logsTex, logsPanel;
     let aiLogs = [{ id: 'default-1', text: 'Dent detected', saved: false }];
+    let damageAnalyses = [];
 
     // ── Drawing helpers ──────────────────────────────────────────────────────
 
@@ -275,15 +275,11 @@ export default function ImmersiveScan({ onCapture, onExit, xrSession: providedSe
     }
 
     function uploadAndAnalyze(b64, angleDeg, bIdx) {
-      if (analysisInFlight) {
-        // Still upload/save even when analysis is in flight — just skip drawing result
-        scanFrame({ frameBase64: b64, angle: angleDeg, bucketIndex: bIdx, scanId })
-          .catch(e => console.warn('[ImmersiveScan] upload:', e.message));
-        return;
-      }
-      analysisInFlight = true;
       scanFrame({ frameBase64: b64, angle: angleDeg, bucketIndex: bIdx, scanId })
         .then(damage => {
+          const storedDamage = { ...damage, scan_angle: angleDeg, bucket_index: bIdx };
+          damageAnalyses.push(storedDamage);
+          if (buckets[bIdx]) buckets[bIdx].damage = storedDamage;
           const areas = damage?.affected_areas || damage?.damaged_areas || [];
           areas.forEach(area => {
             const name = area.name || area.area_name || area.area || 'Unknown';
@@ -292,8 +288,77 @@ export default function ImmersiveScan({ onCapture, onExit, xrSession: providedSe
           });
           if (areas.length) { drawLogsTray(); if (logsPanel) logsPanel.visible = true; }
         })
-        .catch(e => console.warn('[ImmersiveScan] scanFrame:', e.message))
-        .finally(() => { analysisInFlight = false; });
+        .catch(e => console.warn('[ImmersiveScan] scanFrame:', e.message));
+    }
+
+    function getStoredDamageAnalyses() {
+      const stored = buckets.map(bucket => bucket?.damage).filter(Boolean);
+      return stored.length ? stored : damageAnalyses;
+    }
+
+    function mergeDamageAnalyses() {
+      const severityRank = { low: 1, moderate: 2, severe: 3, total_loss: 4 };
+      const mergedAreas = new Map();
+      const damageTypes = new Set();
+      const fraudFlags = new Set();
+      const safetyFlags = new Set();
+      const recommendedActions = new Set();
+      let topSeverity = 'unknown';
+
+      const storedAnalyses = getStoredDamageAnalyses();
+      storedAnalyses.forEach(analysis => {
+        if (!analysis) return;
+        if (analysis.damage_type) damageTypes.add(analysis.damage_type);
+        if (severityRank[analysis.severity] > (severityRank[topSeverity] || 0)) topSeverity = analysis.severity;
+        (analysis.fraud_flags || []).forEach(flag => fraudFlags.add(flag));
+        (analysis.safety_flags || []).forEach(flag => safetyFlags.add(flag));
+        (analysis.recommended_actions || []).forEach(action => recommendedActions.add(action));
+
+        const areas = analysis.affected_areas || analysis.damaged_areas || [];
+        areas.forEach(area => {
+          const name = area.name || area.area_name || area.area || 'Unknown area';
+          const key = name.trim().toLowerCase();
+          const existing = mergedAreas.get(key);
+          const severity = area.severity || analysis.severity || 'unknown';
+          const next = {
+            ...area,
+            name,
+            severity,
+            source_angles: existing?.source_angles || [],
+            source_buckets: existing?.source_buckets || [],
+          };
+          next.source_angles.push(analysis.scan_angle);
+          next.source_buckets.push(analysis.bucket_index);
+
+          if (!existing || (severityRank[severity] || 0) > (severityRank[existing.severity] || 0)) {
+            mergedAreas.set(key, {
+              ...existing,
+              ...next,
+              source_angles: [...new Set(next.source_angles.filter(v => v !== undefined))],
+              source_buckets: [...new Set(next.source_buckets.filter(v => v !== undefined))],
+            });
+          } else {
+            mergedAreas.set(key, {
+              ...existing,
+              source_angles: [...new Set(next.source_angles.filter(v => v !== undefined))],
+              source_buckets: [...new Set(next.source_buckets.filter(v => v !== undefined))],
+            });
+          }
+        });
+      });
+
+      const affectedAreas = [...mergedAreas.values()];
+      return {
+        damage_type: damageTypes.size ? [...damageTypes].join(', ') : 'unknown',
+        severity: topSeverity,
+        affected_areas: affectedAreas,
+        damaged_areas: affectedAreas,
+        fraud_flags: [...fraudFlags],
+        safety_flags: [...safetyFlags],
+        confidence: affectedAreas.length ? 'medium' : 'low',
+        recommended_actions: [...recommendedActions],
+        frame_assessments: storedAnalyses,
+      };
     }
 
     function computeSharpness(d) {
@@ -1034,7 +1099,7 @@ export default function ImmersiveScan({ onCapture, onExit, xrSession: providedSe
             fetch('/api/notes', { method: 'POST', headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ scanId, notes: voiceNotes }) }).catch(() => {});
             renderer.domElement.style.pointerEvents = 'none';
-            onCapture(buckets.filter(Boolean), voiceNotes);
+            onCapture(buckets.filter(Boolean), voiceNotes, mergeDamageAnalyses());
             session.end().catch(() => {});
             return;
           }
@@ -1252,6 +1317,7 @@ export default function ImmersiveScan({ onCapture, onExit, xrSession: providedSe
         stream?.getTracks().forEach(t => t.stop());
         renderer.dispose();
         renderer.domElement.remove();
+        if (phase === 'complete') return;
         onExit();
       });
     }

@@ -470,11 +470,16 @@ export default function ScanScene({ claim, onComplete }) {
     open_claims: 'None',
   });
 
-  async function handleImmersiveScan(frames, notes) {
+  async function handleImmersiveScan(frames, notes, scanDamage) {
     setVoiceNotes(notes);
     setStep('generating');
     try {
-      const damage = { damaged_areas: [], damage_type: 'unknown', severity: 'unknown' };
+      const damage = scanDamage || {
+        damaged_areas: [],
+        affected_areas: [],
+        damage_type: 'unknown',
+        severity: 'unknown',
+      };
       setDamageData(damage);
       let coverageResult = { coverage_decisions: [] };
       try { coverageResult = await checkCoverage(damage); } catch (e) { console.warn('[ScanScene] checkCoverage failed:', e.message); }
