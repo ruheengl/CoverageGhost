@@ -389,7 +389,6 @@ function VerifyPolicyDialog({ onDismiss, onVerify }) {
 }
 
 function PolicyActiveScreen({ policyData, onProceed }) {
-  const [loading, setLoading] = useState(false);
   const info = [
     ['Claimant', policyData.claimant || 'James Chen'],
     ['Policy #', policyData.policy_number || 'ALLST-2024-TX-00925'],
@@ -397,12 +396,6 @@ function PolicyActiveScreen({ policyData, onProceed }) {
     ['Valid through', policyData.valid_through || 'Dec 31, 2026'],
     ['Open Claims', policyData.open_claims || 'None'],
   ];
-
-  async function handleProceed() {
-    setLoading(true);
-    await onProceed();
-  }
-
   return (
     <div className="fade-up" style={CARD}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
@@ -420,78 +413,56 @@ function PolicyActiveScreen({ policyData, onProceed }) {
         </div>
       ))}
       <div style={DIVIDER} />
-      <button className="btn-primary spatial-btn" onClick={handleProceed} disabled={loading}
-        style={{ width: '100%', borderRadius: 12, padding: '14px', opacity: loading ? 0.7 : 1 }}>
-        {loading ? 'Preparing scan…' : 'Proceed to Scan Vehicle'}
+      <button className="btn-primary spatial-btn" onClick={onProceed}
+        style={{ width: '100%', borderRadius: 12, padding: '14px' }}>
+        Proceed to Scan Vehicle
       </button>
+    </div>
+  );
+}
+
+function LoadingScreen({ onReady }) {
+  const [spinIdx, setSpinIdx] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setSpinIdx(i => (i + 1) % 4), 220);
+    return () => clearInterval(t);
+  }, []);
+  useEffect(() => {
+    async function check() {
+      let xr = false;
+      if (!inWebSpatial) {
+        xr = await navigator.xr?.isSessionSupported('immersive-ar').catch(() => false) || false;
+      }
+      onReady(xr);
+    }
+    check();
+  }, []);
+  return (
+    <div className="fade-up" style={CARD}>
+      <div style={{ textAlign: 'center', padding: '24px 0' }}>
+        <div style={{ fontSize: 38, color: '#1a3cef', marginBottom: 16 }}>{SPIN[spinIdx]}</div>
+        <div style={{ color: 'white', fontSize: 17, fontWeight: 600, marginBottom: 8 }}>Preparing Scan</div>
+        <div style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13 }}>Starting immersive session…</div>
+      </div>
     </div>
   );
 }
 
 // ─── Damage Scan ──────────────────────────────────────────────────────────────
 
-function DamageScanScreen({ claim, onComplete, autoImmersive = false }) {
+function DamageScanScreen({ claim, onComplete }) {
   const [stage, setStage] = useState('idle');
   const [coverageDecisions, setCoverageDecisions] = useState([]);
   const [damageData, setDamageData] = useState(null);
   const [progress, setProgress] = useState(0);
-  const [immersiveActive, setImmersiveActive] = useState(autoImmersive);
+  const [immersiveActive, setImmersiveActive] = useState(true);
   const [voiceNotes, setVoiceNotes] = useState([]);
   const [spinIdx, setSpinIdx] = useState(0);
-  const [scanError, setScanError] = useState('');
-  const [busy, setBusy] = useState(false);
-  const videoRef = useRef(null);
-  const streamRef = useRef(null);
 
   useEffect(() => {
-    if (stage !== 'generating') return;
     const t = setInterval(() => setSpinIdx(i => (i + 1) % 4), 220);
     return () => clearInterval(t);
-  }, [stage]);
-
-  useEffect(() => {
-    if (immersiveActive || stage !== 'idle') return;
-    navigator.mediaDevices?.getUserMedia({ video: { facingMode: 'environment' } })
-      .then(stream => {
-        streamRef.current = stream;
-        if (videoRef.current) { videoRef.current.srcObject = stream; videoRef.current.play(); }
-      })
-      .catch(() => {});
-    return () => { streamRef.current?.getTracks().forEach(t => t.stop()); streamRef.current = null; };
-  }, [immersiveActive, stage]);
-
-  function stopStream() {
-    streamRef.current?.getTracks().forEach(t => t.stop());
-    streamRef.current = null;
-  }
-
-  async function handleTrigger() {
-    if (!videoRef.current || busy) return;
-    setBusy(true);
-    setScanError('');
-    try {
-      const canvas = document.createElement('canvas');
-      canvas.width = videoRef.current.videoWidth;
-      canvas.height = videoRef.current.videoHeight;
-      canvas.getContext('2d').drawImage(videoRef.current, 0, 0);
-      const b64 = canvas.toDataURL('image/jpeg', 0.85).split(',')[1];
-      stopStream();
-      setStage('scanning');
-      let p = 0;
-      const timer = setInterval(() => { p += 2; setProgress(Math.min(p, 95)); if (p >= 95) clearInterval(timer); }, 160);
-      const damage = await analyzeDamage(b64);
-      setDamageData(damage);
-      const result = await checkCoverage(damage);
-      setCoverageDecisions(result.coverage_decisions || []);
-      clearInterval(timer); setProgress(100); setStage('coverage');
-    } catch (err) {
-      console.error(err);
-      setScanError('Analysis failed. Check your connection and try again.');
-      setStage('idle');
-    } finally {
-      setBusy(false);
-    }
-  }
+  }, []);
 
   async function handleImmersiveScan(frames, notes) {
     setVoiceNotes(notes);
@@ -550,38 +521,28 @@ function DamageScanScreen({ claim, onComplete, autoImmersive = false }) {
         </div>
       )}
 
-      <ClaimHUD
-        claimId={claim.claimId}
-        adjuster={claim.adjuster}
-        stage={stage === 'coverage' ? 'Coverage Active' : stage === 'generating' ? 'Processing' : 'Scanning'}
-        progress={stage === 'scanning' ? progress : undefined}
-      />
-
-      {stage === 'idle' && immersiveActive && (
-        <ImmersiveScan onCapture={handleImmersiveScan} onExit={() => setImmersiveActive(false)} />
+      {stage !== 'idle' && (
+        <ClaimHUD
+          claimId={claim.claimId}
+          adjuster={claim.adjuster}
+          stage={stage === 'coverage' ? 'Coverage Active' : 'Processing'}
+          progress={stage === 'scanning' ? progress : undefined}
+        />
       )}
 
-      {stage === 'idle' && !immersiveActive && (
-        <div className="fade-up" style={CARD}>
-          <div style={{ color: 'white', fontSize: 19, fontWeight: 700, marginBottom: 4 }}>Scan Vehicle Damage</div>
-          <div style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13, marginBottom: 16 }}>
-            Point the camera at the damaged area, then pull the trigger.
+      {stage === 'idle' && immersiveActive && (
+        <>
+          <div style={{
+            position: 'fixed', inset: 0, background: '#020617', zIndex: 50,
+            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'white',
+            pointerEvents: 'none',
+          }}>
+            <div style={{ fontSize: 38, color: '#1a3cef', marginBottom: 16 }}>{SPIN[spinIdx]}</div>
+            <div style={{ fontSize: 17, fontWeight: 600, marginBottom: 8 }}>Starting Immersive Scan</div>
+            <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.45)' }}>Launching AR session…</div>
           </div>
-          <div style={DIVIDER} />
-          <video ref={videoRef} autoPlay playsInline muted style={{ display: 'none' }} />
-          {scanError && (
-            <div style={{
-              padding: '10px 12px', borderRadius: 10, background: 'rgba(239,68,68,0.15)',
-              border: '1px solid rgba(239,68,68,0.4)', color: '#fca5a5', fontSize: 13, marginBottom: 12,
-            }}>
-              {scanError}
-            </div>
-          )}
-          <button className="btn-primary spatial-btn" onClick={handleTrigger}
-            style={{ borderRadius: 12, width: '100%', marginBottom: 10 }} disabled={busy}>
-            {busy ? 'Analyzing…' : 'Capture'}
-          </button>
-        </div>
+          <ImmersiveScan onCapture={handleImmersiveScan} onExit={() => setImmersiveActive(false)} />
+        </>
       )}
 
       {stage === 'coverage' && (
@@ -629,7 +590,7 @@ export default function ScanScene({ claim, onComplete }) {
   const [step, setStep] = useState('task');
   const [driver, setDriver] = useState({});
   const [reg, setReg] = useState({});
-  const [xrReady, setXrReady] = useState(false);
+  const [, setXrReady] = useState(false);
 
   const [policyData] = useState({
     claimant: claim?.adjuster || 'James Chen',
@@ -674,17 +635,13 @@ export default function ScanScene({ claim, onComplete }) {
           <VerifyPolicyDialog onDismiss={() => setStep('vehicle-reg')} onVerify={() => setStep('policy-active')} />
         )}
         {step === 'policy-active' && (
-          <PolicyActiveScreen policyData={policyData} onProceed={async () => {
-            let xr = false;
-            if (!inWebSpatial) {
-              xr = await navigator.xr?.isSessionSupported('immersive-ar').catch(() => false) || false;
-            }
-            setXrReady(xr);
-            setStep('scan');
-          }} />
+          <PolicyActiveScreen policyData={policyData} onProceed={() => setStep('loading')} />
+        )}
+        {step === 'loading' && (
+          <LoadingScreen onReady={(xr) => { setXrReady(xr); setStep('scan'); }} />
         )}
         {step === 'scan' && (
-          <DamageScanScreen claim={claim} onComplete={onComplete} autoImmersive={xrReady} />
+          <DamageScanScreen claim={claim} onComplete={onComplete} />
         )}
       </div>
     </div>
