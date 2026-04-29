@@ -18,7 +18,7 @@ export default function StickyNote({ area, position, onDismiss }) {
       <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 6 }}>{area.name}</div>
       <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 8 }}>{area.description}</div>
       {area.policy_section && (
-        <div style={{ fontSize: 11, color: '#99f6e4', marginBottom: 6 }}>
+        <div style={{ fontSize: 11, color: '#1a3cef', marginBottom: 6 }}>
           Policy §{area.policy_section}
         </div>
       )}

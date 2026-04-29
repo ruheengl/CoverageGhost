@@ -155,7 +155,7 @@ export default function ImmersiveAnnotate({ coverageDecisions = [], voiceNotes =
 
       // ── Continue button ────────────────────────────────────────────────────
       const continueBtn = makeCanvasPlane(0.3, 0.062, (ctx, W, H) => {
-        ctx.fillStyle = '#0d9488';
+        ctx.fillStyle = '#1a3cef';
         rrect(ctx, 0, 0, W, H, 20); ctx.fill();
         ctx.fillStyle = 'white'; ctx.font = 'bold 30px Arial'; ctx.textAlign = 'center';
         ctx.fillText('Pull trigger to continue  →', W / 2, H / 2 + 10);

@@ -496,13 +496,13 @@ function DamageScanScreen({ claim, onComplete }) {
           position: 'fixed', inset: 0, background: '#020617', zIndex: 100,
           display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'white',
         }}>
-          <div style={{ fontSize: 11, letterSpacing: 4, color: '#0d9488', marginBottom: 20, textTransform: 'uppercase', fontWeight: 600 }}>
+          <div style={{ fontSize: 11, letterSpacing: 4, color: '#1a3cef', marginBottom: 20, textTransform: 'uppercase', fontWeight: 600 }}>
             World Labs Marble
           </div>
-          <div style={{ fontSize: 38, marginBottom: 18, color: '#0d9488' }}>{SPIN[spinIdx]}</div>
+          <div style={{ fontSize: 38, marginBottom: 18, color: '#1a3cef' }}>{SPIN[spinIdx]}</div>
           <div style={{ fontSize: 21, fontWeight: 700, marginBottom: 26 }}>Generating 3D Reconstruction</div>
           <div style={{ width: 320, height: 5, background: 'rgba(255,255,255,0.08)', borderRadius: 6, overflow: 'hidden', marginBottom: 10 }}>
-            <div style={{ width: `${progress}%`, height: '100%', background: 'linear-gradient(90deg,#0d9488,#34d399)', transition: 'width 0.15s linear', borderRadius: 6 }} />
+            <div style={{ width: `${progress}%`, height: '100%', background: 'linear-gradient(90deg,#1a3cef,#34d399)', transition: 'width 0.15s linear', borderRadius: 6 }} />
           </div>
           <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.35)' }}>{progress}%</div>
         </div>

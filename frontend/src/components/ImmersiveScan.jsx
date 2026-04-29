@@ -9,7 +9,7 @@ const MIN_BUCKETS_COMPLETE = 0;
 // 4-wheel setup phases in order
 const WHEEL_PHASES = ['setup-fl', 'setup-fr', 'setup-rr', 'setup-rl'];
 const WHEEL_LABELS = ['Front-Left\nWheel', 'Front-Right\nWheel', 'Rear-Right\nWheel', 'Rear-Left\nWheel'];
-const WHEEL_COLORS = [0x0d9488, 0x22c55e, 0xef4444, 0xfbbf24];
+const WHEEL_COLORS = [0x1a3cef, 0x1a3cef, 0x1a3cef, 0x1a3cef];
 
 export default function ImmersiveScan({ onCapture, onExit }) {
   const videoRef = useRef(null);
@@ -35,15 +35,13 @@ export default function ImmersiveScan({ onCapture, onExit }) {
     let stickyNotes = []; // { mesh, noteEntry } — tracked for play-button raycasts
     let activeAudio = null;       // currently playing Audio element
     let activeAudioMesh = null;   // mesh whose button is in play state
-    let gripHeld = false;         // grip button currently held (note placement arm)
+    let gripHeld = false;         // grip button currently held (recording in progress)
     let grippedStickyIdx = -1;    // index of sticky note being moved (-1 = none)
-    let gripPreviewPos = null;    // placement position computed while grip held
     const scanId = Date.now();
     let analysisInFlight = false;
     let lastControllerPoses = []; // cached each XR frame from targetRaySpace
     let lastDebugPt = null; // last placed wheel point for on-screen debug
     let grabbedSphereIdx = -1; // index of wheel sphere currently being dragged (-1 = none)
-    let pendingNotePos = null; // 3D hit point captured on first trigger press, attached to note on second
     let activeStickyMesh = null; // the live sticky note mesh being recorded into
     let wheelsLocked = false; // true after user confirms wheel placement
 
@@ -64,7 +62,7 @@ export default function ImmersiveScan({ onCapture, onExit }) {
     logsCanvas.width = 400; logsCanvas.height = 520;
     const lc = logsCanvas.getContext('2d');
     let logsTex, logsPanel;
-    let aiLogs = []; // { id, text, saved }
+    let aiLogs = [{ id: 'default-1', text: 'Dent detected', saved: false }];
 
     // ── Drawing helpers ──────────────────────────────────────────────────────
 
@@ -73,7 +71,7 @@ export default function ImmersiveScan({ onCapture, onExit }) {
       mc.clearRect(0, 0, 512, 256);
       mc.fillStyle = 'rgba(15,23,42,0.65)';
       rrect(mc, 0, 0, 512, 256, 32); mc.fill();
-      mc.strokeStyle = WHEEL_COLORS[stepIdx] ? `#${WHEEL_COLORS[stepIdx].toString(16).padStart(6,'0')}` : '#0d9488';
+      mc.strokeStyle = WHEEL_COLORS[stepIdx] ? `#${WHEEL_COLORS[stepIdx].toString(16).padStart(6,'0')}` : '#1a3cef';
       mc.lineWidth = 3; rrect(mc, 0, 0, 512, 256, 32); mc.stroke();
 
       // Step dots
@@ -81,20 +79,20 @@ export default function ImmersiveScan({ onCapture, onExit }) {
       for (let i = 0; i < 4; i++) {
         mc.beginPath();
         mc.arc(176 + i * 54, 36, 10, 0, Math.PI * 2);
-        mc.fillStyle = i < stepIdx ? '#0d9488' : i === stepIdx ? '#34d399' : 'rgba(255,255,255,0.2)';
+        mc.fillStyle = i < stepIdx ? '#1a3cef' : i === stepIdx ? '#34d399' : 'rgba(255,255,255,0.2)';
         mc.fill();
       }
 
       mc.fillStyle = 'white'; mc.font = 'bold 24px Arial'; mc.textAlign = 'center';
       mc.fillText('Tap wheel on ground', 256, 80);
-      mc.font = '28px Arial'; mc.fillStyle = '#34d399';
+      mc.font = '28px Arial'; mc.fillStyle = '#1a3cef';
       label.split('\n').forEach((l, i) => mc.fillText(l, 256, 126 + i * 36));
       mc.fillStyle = 'rgba(255,255,255,0.4)'; mc.font = '17px Arial';
       mc.fillText('Pull trigger to place', 256, 210);
 
       // Debug: show last placed point coordinates
       if (lastDebugPt) {
-        mc.fillStyle = '#fbbf24'; mc.font = '14px monospace';
+        mc.fillStyle = '#454545'; mc.font = '14px monospace';
         mc.fillText(
           `last: x=${lastDebugPt.x.toFixed(3)}  y=${lastDebugPt.y.toFixed(3)}  z=${lastDebugPt.z.toFixed(3)}`,
           256, 238
@@ -107,13 +105,13 @@ export default function ImmersiveScan({ onCapture, onExit }) {
       mc.clearRect(0, 0, 512, 256);
       mc.fillStyle = 'rgba(15,23,42,0.65)';
       rrect(mc, 0, 0, 512, 256, 32); mc.fill();
-      mc.strokeStyle = '#22c55e'; mc.lineWidth = 3;
+      mc.strokeStyle = '#1a3cef'; mc.lineWidth = 3;
       rrect(mc, 0, 0, 512, 256, 32); mc.stroke();
 
       for (let i = 0; i < 4; i++) {
         mc.beginPath();
         mc.arc(176 + i * 54, 36, 10, 0, Math.PI * 2);
-        mc.fillStyle = '#0d9488'; mc.fill();
+        mc.fillStyle = '#1a3cef'; mc.fill();
       }
 
       mc.fillStyle = 'white'; mc.font = 'bold 26px Arial'; mc.textAlign = 'center';
@@ -141,15 +139,15 @@ export default function ImmersiveScan({ onCapture, onExit }) {
         mc.fillStyle = '#f87171'; mc.font = 'bold 20px Arial';
         mc.fillText('⚠ Step back to the ring', 256, 160);
       } else if (annotating) {
-        mc.fillStyle = '#fbbf24'; mc.font = 'bold 20px Arial';
+        mc.fillStyle = '#1a3cef'; mc.font = 'bold 20px Arial';
         mc.fillText('🎙 Recording... pull trigger to save', 256, 160);
       } else if (filled >= MIN_BUCKETS_COMPLETE) {
-        mc.fillStyle = '#34d399'; mc.font = 'bold 20px Arial';
+        mc.fillStyle = '#1a3cef'; mc.font = 'bold 20px Arial';
         mc.fillText('✓ Pull trigger to complete scan', 256, 160);
         mc.fillStyle = 'rgba(255,255,255,0.35)'; mc.font = '16px Arial';
         mc.fillText('or keep walking for more coverage', 256, 190);
       } else {
-        mc.fillStyle = 'rgba(255,255,255,0.5)'; mc.font = '18px Arial';
+        mc.fillStyle = '#1a3cef'; mc.font = '18px Arial';
         mc.fillText('Walk along the ring around the car', 256, 160);
         mc.fillStyle = 'rgba(255,255,255,0.3)'; mc.font = '15px Arial';
         mc.fillText('Pull trigger to add a voice note', 256, 190);
@@ -161,9 +159,9 @@ export default function ImmersiveScan({ onCapture, onExit }) {
       vc.clearRect(0, 0, 512, 300);
       vc.fillStyle = 'rgba(15,23,42,0.65)';
       rrect(vc, 0, 0, 512, 300, 28); vc.fill();
-      vc.strokeStyle = '#fbbf24'; vc.lineWidth = 2.5;
+      vc.strokeStyle = '#5e5e5e'; vc.lineWidth = 2.5;
       rrect(vc, 0, 0, 512, 300, 28); vc.stroke();
-      vc.fillStyle = '#fbbf24'; vc.font = '24px Arial'; vc.textAlign = 'center';
+      vc.fillStyle = '#3a3a3a'; vc.font = '24px Arial'; vc.textAlign = 'center';
       vc.fillText('🎙 Field Note', 256, 46);
       vc.fillStyle = 'white'; vc.font = '19px Arial';
       const words = text.split(' ');
@@ -250,7 +248,7 @@ export default function ImmersiveScan({ onCapture, onExit }) {
         if (i === currentBucket) {
           mesh.material.color.set(tooClose ? 0xef4444 : 0x34d399);
         } else if (buckets[i]) {
-          mesh.material.color.set(0x0d9488);
+          mesh.material.color.set(0x1a3cef);
         } else {
           mesh.material.color.set(0x1e293b);
         }
@@ -310,13 +308,13 @@ export default function ImmersiveScan({ onCapture, onExit }) {
 
     function makeStickyNote(pos) {
       const c = document.createElement('canvas');
-      c.width = 360; c.height = 270; // 4:3
+      c.width = 400; c.height = 300; // 4:3
       const tex = new THREE.CanvasTexture(c);
       const mesh = new THREE.Mesh(
-        new THREE.PlaneGeometry(0.133, 0.1), // 4:3, half the original height
+        new THREE.PlaneGeometry(0.266, 0.2), // 4:3, half the original height
         new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, side: THREE.DoubleSide })
       );
-      mesh.position.set(pos.x, pos.y + 0.07, pos.z);
+      mesh.position.set(pos.x, pos.y, pos.z);
       if (lastViewerT) mesh.lookAt(lastViewerT.x, mesh.position.y, lastViewerT.z);
       mesh._noteCanvas = c;
       mesh._noteTex = tex;
@@ -329,12 +327,12 @@ export default function ImmersiveScan({ onCapture, onExit }) {
       const c = mesh._noteCanvas;
       const ctx = c.getContext('2d');
       ctx.clearRect(0, 0, 360, 270);
-      ctx.fillStyle = '#fef08a';
+      ctx.fillStyle = '#929292';
       rrect(ctx, 0, 0, 360, 270, 20); ctx.fill();
       // Recording indicator bar
       rrect(ctx, 0, 0, 360, 52, 20); ctx.fillStyle = '#1c1917'; ctx.fill();
       ctx.fillRect(0, 32, 360, 20);
-      ctx.fillStyle = '#fbbf24'; ctx.font = 'bold 20px Arial'; ctx.textAlign = 'center';
+      ctx.fillStyle = '#3f3f3f'; ctx.font = 'bold 20px Arial'; ctx.textAlign = 'center';
       ctx.fillText('🎙 Recording...', 180, 34);
       ctx.fillStyle = '#1c1917';
       ctx.font = '20px Arial'; ctx.textAlign = 'left';
@@ -361,7 +359,7 @@ export default function ImmersiveScan({ onCapture, onExit }) {
       rrect(ctx, 0, 0, 360, 56, 20); ctx.fillStyle = '#1c1917'; ctx.fill();
       ctx.fillRect(0, 36, 360, 20);
       // Play button circle (UV: x<0.11, y>0.79 in Three.js UV space)
-      ctx.fillStyle = noteEntry.audioUrl ? (playing ? '#0d9488' : '#34d399') : '#6b7280';
+      ctx.fillStyle = noteEntry.audioUrl ? (playing ? '#1a3cef' : '#34d399') : '#6b7280';
       ctx.beginPath(); ctx.arc(34, 28, 20, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = '#fff'; ctx.font = 'bold 18px Arial'; ctx.textAlign = 'center';
       ctx.fillText(playing ? '⏸' : '▶', 35, 34);
@@ -393,7 +391,7 @@ export default function ImmersiveScan({ onCapture, onExit }) {
       ctx.fillText(geo, 180, 232);
       ctx.fillText(noteEntry.timestamp || '', 180, 252);
       // Trash icon — bottom-right (UV: u>0.83, v<0.09)
-      ctx.fillStyle = 'rgba(239,68,68,0.85)';
+      ctx.fillStyle = 'rgba(66, 66, 66, 0.85)';
       rrect(ctx, 302, 236, 46, 24, 6); ctx.fill();
       ctx.fillStyle = 'white'; ctx.font = 'bold 13px Arial'; ctx.textAlign = 'center';
       ctx.fillText('🗑', 325, 253);
@@ -422,12 +420,12 @@ export default function ImmersiveScan({ onCapture, onExit }) {
       const c = mesh._noteCanvas;
       const ctx = c.getContext('2d');
       ctx.clearRect(0, 0, 360, 270);
-      ctx.fillStyle = '#fef08a';
+      ctx.fillStyle = '#4b4b4b';
       rrect(ctx, 0, 0, 360, 270, 20); ctx.fill();
       // Top label bar
       rrect(ctx, 0, 0, 360, 46, 20); ctx.fillStyle = '#1c1917'; ctx.fill();
       ctx.fillRect(0, 26, 360, 20);
-      ctx.fillStyle = '#34d399'; ctx.font = 'bold 14px Arial'; ctx.textAlign = 'left';
+      ctx.fillStyle = '#1a3cef'; ctx.font = 'bold 14px Arial'; ctx.textAlign = 'left';
       ctx.fillText('🤖 AI Analysis', 16, 32);
       // Body text
       ctx.fillStyle = '#1c1917'; ctx.font = 'bold 18px Arial'; ctx.textAlign = 'left';
@@ -441,7 +439,7 @@ export default function ImmersiveScan({ onCapture, onExit }) {
       }
       if (line) ctx.fillText(line.trim(), 22, y);
       // Trash icon — bottom-right (UV: u>0.83, v<0.09)
-      ctx.fillStyle = 'rgba(239,68,68,0.85)';
+      ctx.fillStyle = 'rgba(66, 66, 66, 0.85)';
       rrect(ctx, 302, 236, 46, 24, 6); ctx.fill();
       ctx.fillStyle = 'white'; ctx.font = 'bold 13px Arial'; ctx.textAlign = 'center';
       ctx.fillText('🗑', 325, 253);
@@ -788,7 +786,8 @@ export default function ImmersiveScan({ onCapture, onExit }) {
         new THREE.PlaneGeometry(0.28, 0.364), // 400:520 ratio
         new THREE.MeshBasicMaterial({ map: logsTex, transparent: true, depthWrite: false })
       );
-      logsPanel.visible = false;
+      logsPanel.visible = true;
+      drawLogsTray();
       scene.add(logsPanel);
 
       // Wheel marker spheres
@@ -972,30 +971,6 @@ export default function ImmersiveScan({ onCapture, onExit }) {
           // Only the active (in-progress) note tracks the viewer — saved notes stay fixed
           if (activeStickyMesh) activeStickyMesh.lookAt(tx, activeStickyMesh.position.y, tz);
 
-          // Grip held → compute and show note placement preview
-          if (gripHeld && !annotating && grippedStickyIdx === -1 && lastControllerPoses.length > 0) {
-            let previewPos = null;
-            const floorHit = rayFloorIntersect(lastControllerPoses, lastFloorY);
-            if (floorHit && carCenter) {
-              const dx = floorHit.x - carCenter.x, dz = floorHit.z - carCenter.z;
-              if (Math.sqrt(dx * dx + dz * dz) <= scanRadius + 0.6) {
-                const noteY = lastViewerT ? lastViewerT.y - 0.5 : lastFloorY + 0.6;
-                previewPos = { x: floorHit.x, y: Math.max(noteY, lastFloorY + 0.3), z: floorHit.z };
-              }
-            }
-            if (!previewPos) {
-              const p = lastControllerPoses[0];
-              const dir = new THREE.Vector3(0, 0, -1)
-                .applyQuaternion(new THREE.Quaternion(p.qx, p.qy, p.qz, p.qw)).normalize();
-              previewPos = { x: p.x + dir.x * 1.5, y: p.y + dir.y * 1.5, z: p.z + dir.z * 1.5 };
-            }
-            gripPreviewPos = previewPos;
-            notePreview.position.set(previewPos.x, previewPos.y, previewPos.z);
-            notePreview.quaternion.copy(quat);
-            notePreview.visible = true;
-          } else {
-            notePreview.visible = false;
-          }
 
           // Grip dragging a saved sticky note — follow controller ray at 1m
           if (grippedStickyIdx !== -1 && lastControllerPoses.length > 0) {
@@ -1132,7 +1107,6 @@ export default function ImmersiveScan({ onCapture, onExit }) {
                       // Cancel — remove from aiLogs
                       aiLogs = aiLogs.filter(l => l.id !== log.id);
                       drawLogsTray();
-                      if (aiLogs.filter(l => !l.saved).length === 0) logsPanel.visible = false;
                     } else if (u > 0.43) {
                       // Save — mark saved, spawn AI sticky note near car
                       log.saved = true;
@@ -1172,8 +1146,7 @@ export default function ImmersiveScan({ onCapture, onExit }) {
                   if (hitNote?.noteEntry) {
                     if (hitNote.noteEntry.isAI) {
                       aiLogs = aiLogs.filter(l => l.id !== hitNote.noteEntry.id);
-                      if (aiLogs.filter(l => !l.saved).length === 0) logsPanel.visible = false;
-                      else drawLogsTray();
+                      drawLogsTray();
                     } else {
                       voiceNotes = voiceNotes.filter(n => n.id !== hitNote.noteEntry.id);
                       saveNotes();
@@ -1210,7 +1183,7 @@ export default function ImmersiveScan({ onCapture, onExit }) {
         // Note creation is on grip (squeezeend) — see handler below
       });
 
-      // Grip press — either grab a saved sticky note to reposition, or arm placement preview
+      // Grip press — grab a saved sticky note, or start recording a new one immediately
       session.addEventListener('squeezestart', () => {
         if (phase !== 'scanning' || annotating) return;
         // Check if ray hits a saved sticky note — grab it
@@ -1223,38 +1196,51 @@ export default function ImmersiveScan({ onCapture, onExit }) {
             return;
           }
         }
-        // No note hit — arm the placement preview
+        // No note hit — place note and start recording immediately
         gripHeld = true;
-        gripPreviewPos = null;
-      });
-
-      // Grip release — drop grabbed note or create new note at preview position
-      session.addEventListener('squeezeend', () => {
-        // Releasing a grabbed note — just drop it
-        if (grippedStickyIdx !== -1) {
-          grippedStickyIdx = -1;
-          return;
-        }
-        // Releasing grip — create note at preview position and start recording
-        if (!gripHeld || !gripPreviewPos || annotating) { gripHeld = false; return; }
-        gripHeld = false;
         notePreview.visible = false;
 
-        pendingNotePos = gripPreviewPos;
-        gripPreviewPos = null;
-        if (scene) activeStickyMesh = makeStickyNote(pendingNotePos);
+        let pos = null;
+        const floorHit = rayFloorIntersect(lastControllerPoses, lastFloorY);
+        if (floorHit && carCenter) {
+          const dx = floorHit.x - carCenter.x, dz = floorHit.z - carCenter.z;
+          if (Math.sqrt(dx * dx + dz * dz) < scanRadius * 1.3)
+            pos = { x: floorHit.x, y: floorHit.y + 0.07, z: floorHit.z };
+        }
+        if (!pos && lastControllerPoses.length > 0) {
+          const p0 = lastControllerPoses[0];
+          const d = new THREE.Vector3(0, 0, -1).applyQuaternion(new THREE.Quaternion(p0.qx, p0.qy, p0.qz, p0.qw)).normalize();
+          pos = { x: p0.x + d.x * 1.5, y: p0.y + d.y * 1.5, z: p0.z + d.z * 1.5 };
+        }
+        if (!pos) pos = fallbackFloorPoint(1.5) ?? { x: 0, y: lastFloorY + 0.07, z: -1.5 };
+
+        pendingNotePos = pos;
+        activeStickyMesh = makeStickyNote(pos);
 
         const noteAzDeg = (carCenter && lastViewerT)
           ? ((Math.atan2(lastViewerT.z - carCenter.z, lastViewerT.x - carCenter.x) * 180 / Math.PI) + 360) % 360
           : currentBucket * BUCKET_DEG;
-        const noteEntry = { id: String(Date.now()), text: '', angle: noteAzDeg, position3d: pendingNotePos };
+        const noteEntry = { id: String(Date.now()), text: '', angle: noteAzDeg, position3d: pos };
         voiceNotes.push(noteEntry);
 
         annotating = true;
         vPanel.visible = true;
-        // drawVoice('Recording...');
         startVosk(activeStickyMesh, noteEntry);
         drawStatus();
+      });
+
+      // Grip release — drop grabbed note, or stop recording and finalize
+      session.addEventListener('squeezeend', () => {
+        if (grippedStickyIdx !== -1) {
+          grippedStickyIdx = -1;
+          return;
+        }
+        if (gripHeld && annotating) {
+          gripHeld = false;
+          stopVosk();
+          return;
+        }
+        gripHeld = false;
       });
 
       session.addEventListener('end', () => {

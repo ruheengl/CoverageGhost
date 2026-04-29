@@ -14,7 +14,7 @@ const CARD = {
 
 const DIVIDER = { height: 1, background: 'rgba(255,255,255,0.10)', margin: '14px 0' };
 
-export default function ReviewScene({ claim, damageData, coverageDecisions = [], splatUrl }) {
+export default function ReviewScene({ claim, damageData, coverageDecisions = [], splatUrl, onView3D }) {
   const [submitted, setSubmitted] = useState(false);
   const [show3D, setShow3D] = useState(true);
   const [frames, setFrames] = useState([]);
@@ -82,9 +82,10 @@ export default function ReviewScene({ claim, damageData, coverageDecisions = [],
           {/* View in 3D button */}
           <button
             className="btn-primary"
+            onClick={onView3D}
             style={{ width: '100%', padding: '11px', borderRadius: 12, fontSize: 14, fontWeight: 600 }}
           >
-            {'View in 3D'}
+            View in 3D
           </button>
 
           {/* GS viewer */}
@@ -132,8 +133,8 @@ export default function ReviewScene({ claim, damageData, coverageDecisions = [],
           )}
 
           {frames.length === 0 && (
-            <div style={{ color: 'rgba(255,255,255,0.25)', fontSize: 12, textAlign: 'center', padding: '16px 0' }}>
-              No captured frames found.<br />Restart backend to load images.
+            <div style={{ color: 'rgba(255, 255, 255, 0.5)', fontSize: 12, textAlign: 'center', padding: '16px 0' }}>
+              No captured images found.<br />Restart task to capture images.
             </div>
           )}
         </div>

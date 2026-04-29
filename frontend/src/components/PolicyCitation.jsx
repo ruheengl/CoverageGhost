@@ -21,7 +21,7 @@ export default function PolicyCitation({ decision, position }) {
       </div>
       <div style={{ fontSize: 12, opacity: 0.85 }}>{decision.reason}</div>
       {decision.estimated_payout_usd && (
-        <div style={{ fontSize: 11, color: '#99f6e4', marginTop: 6 }}>
+        <div style={{ fontSize: 11, color: '#1a3cef', marginTop: 6 }}>
           Est. ${decision.estimated_payout_usd.min.toLocaleString()}
           –${decision.estimated_payout_usd.max.toLocaleString()}
         </div>

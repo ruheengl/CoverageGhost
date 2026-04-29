@@ -79,7 +79,7 @@ export default function AnnotateScene({
               onClick={() => setInXR(true)}
               style={{
                 marginTop: 12, padding: '12px 18px', border: 'none', borderRadius: 10,
-                background: 'linear-gradient(135deg, #0d9488, #0891b2)',
+                background: 'linear-gradient(135deg, #1a3cef, #0891b2)',
                 color: 'white', fontSize: 14, fontWeight: 700,
                 cursor: 'pointer', width: '100%', marginBottom: 8,
               }}
@@ -110,7 +110,7 @@ export default function AnnotateScene({
             Field Notes
             {voiceNotes.length > 0 && (
               <span style={{
-                background: '#fbbf24', color: '#020617', borderRadius: 20,
+                background: '#2d2d2d', color: '#020617', borderRadius: 20,
                 padding: '1px 8px', fontSize: 11, fontWeight: 700,
               }}>
                 {voiceNotes.length}
@@ -124,7 +124,7 @@ export default function AnnotateScene({
               <div key={i} style={{
                 marginBottom: 10, padding: '8px 10px', borderRadius: 10,
                 background: 'rgba(255,255,255,0.05)',
-                borderLeft: '3px solid #fbbf24',
+                borderLeft: '3px solid #2d2d2d',
               }}>
                 <div style={{ fontSize: 10, opacity: 0.5, marginBottom: 4, textTransform: 'uppercase', letterSpacing: 1 }}>
                   {angleLabel(note.angle)}

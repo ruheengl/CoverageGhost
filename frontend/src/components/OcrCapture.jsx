@@ -94,7 +94,7 @@ export default function OcrCapture({ onComplete }) {
               width: '100%',
               marginTop: 16,
               padding: '12px',
-              background: '#0d9488',
+              background: '#1a3cef',
               border: 'none',
               borderRadius: 10,
               color: 'white',

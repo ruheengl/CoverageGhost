@@ -5,7 +5,7 @@
   "start_url": "/",
   "display": "minimal-ui",
   "background_color": "#020617",
-  "theme_color": "#0d9488",
+  "theme_color": "#1a3cef",
   "main_scene": {
     "type": "volume",
     "defaultSize": { "width": 800, "height": 600, "depth": 400 },

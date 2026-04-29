@@ -47,7 +47,8 @@ export default function App() {
       )}
       {scene === 'review' && (
         <ReviewScene claim={claim} damageData={damageData}
-          coverageDecisions={coverageDecisions} splatUrl={splatUrl} />
+          coverageDecisions={coverageDecisions} splatUrl={splatUrl}
+          onView3D={() => setScene('splat-view')} />
       )}
     </div>
   );

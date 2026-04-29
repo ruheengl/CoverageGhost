@@ -25,9 +25,9 @@ export default function SpatialNotePin({ note, onRedo }) {
 
   return (
     <div style={{
-      background: 'rgba(15,23,42,0.65)',
+      background: 'rgba(52, 52, 52, 0.65)',
       backdropFilter: 'blur(8px)',
-      border: '1px solid rgba(251,191,36,0.4)',
+      border: '1px solid rgba(61, 61, 61, 0.4)',
       borderRadius: 10,
       padding: '10px 12px',
       minWidth: 180,
@@ -46,7 +46,7 @@ export default function SpatialNotePin({ note, onRedo }) {
         <button
           onClick={handleListen}
           disabled={playing}
-          style={{ ...btnBase, background: playing ? '#92400e' : '#fbbf24', color: '#0f172a', opacity: playing ? 0.7 : 1 }}
+          style={{ ...btnBase, background: playing ? '#191919' : '#464646', color: '#0f172a', opacity: playing ? 0.7 : 1 }}
         >
           {playing ? 'Playing…' : 'Listen'}
         </button>

@@ -20,9 +20,9 @@ export default function ImmersiveViewer({ splatUrl, damageData, onComplete, onEx
       pc.clearRect(0, 0, 512, 200);
       pc.fillStyle = 'rgba(15,23,42,0.92)';
       rrect(pc, 0, 0, 512, 200, 28); pc.fill();
-      pc.strokeStyle = '#0d9488'; pc.lineWidth = 3;
+      pc.strokeStyle = '#1a3cef'; pc.lineWidth = 3;
       rrect(pc, 0, 0, 512, 200, 28); pc.stroke();
-      pc.fillStyle = '#99f6e4'; pc.font = 'bold 22px Arial'; pc.textAlign = 'center';
+      pc.fillStyle = '#1a3cef'; pc.font = 'bold 22px Arial'; pc.textAlign = 'center';
       pc.fillText('3D Reconstruction', 256, 44);
       pc.fillStyle = 'white'; pc.font = '18px Arial';
       pc.fillText(line1, 256, 84);
