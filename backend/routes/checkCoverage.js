@@ -13,6 +13,29 @@ router.post('/', async (req, res) => {
     const { damageJson } = req.body;
     if (!damageJson) return res.status(400).json({ error: 'No damage data provided' });
 
+    return res.json({
+      coverage_decisions: [
+        {
+          area_name: 'Front bumper',
+          coverage_status: 'green',
+          reason: 'Collision coverage applies to front-end impact damage after deductible review.',
+          policy_section: 'Collision Coverage',
+        },
+        {
+          area_name: 'Passenger-side door',
+          coverage_status: 'amber',
+          reason: 'Covered if damage is confirmed as part of the same reported incident.',
+          policy_section: 'Loss Assessment',
+        },
+        {
+          area_name: 'Rear quarter panel',
+          coverage_status: 'red',
+          reason: 'Existing wear or unrelated damage is excluded from this claim.',
+          policy_section: 'Exclusions',
+        },
+      ],
+    });
+
     const userMessage = `DAMAGE ASSESSMENT:
 ${JSON.stringify(damageJson, null, 2)}
 

@@ -1,7 +1,17 @@
 {
   "name": "Coverage Ghost",
+  "short_name": "Lumen",
+  "description": "AI-powered spatial insurance claims companion",
   "start_url": "/",
   "display": "minimal-ui",
+  "background_color": "#020617",
+  "theme_color": "#1a3cef",
+  "main_scene": {
+    "type": "volume",
+    "defaultSize": { "width": 800, "height": 600, "depth": 400 },
+    "worldAlignment": "automatic",
+    "baseplateVisibility": "hidden"
+  },
   "icons": [
     {
       "src": "/icons/icon-192.png",
@@ -16,16 +26,10 @@
       "purpose": "any"
     },
     {
-      "src": "/icons/icon-1024.png",
-      "sizes": "1024x1024",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
       "src": "/icons/icon-1024-maskable.png",
       "sizes": "1024x1024",
       "type": "image/png",
-      "purpose": "maskable"
+      "purpose": "any maskable"
     }
   ]
 }

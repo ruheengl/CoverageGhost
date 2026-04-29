@@ -6,6 +6,7 @@ export default function CameraCapture({
   captureLabel = 'Take Photo',
   busyLabel = 'Processing...',
   onCapture,
+  style = {},
 }) {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
@@ -92,7 +93,7 @@ export default function CameraCapture({
     canvas.getContext('2d').drawImage(video, 0, 0, width, height);
 
     canvas.toBlob(async (blob) => {
-      if (!blob) return;
+      if (!blob) { cancelCamera(); return; }
       cancelCamera();
       setMode('processing');
       try {
@@ -123,7 +124,7 @@ export default function CameraCapture({
       flex: 1, padding: '13px 10px',
       border: primary ? 'none' : '1px solid rgba(255,255,255,0.18)',
       borderRadius: 10,
-      background: disabled ? '#334155' : primary ? '#0d9488' : 'rgba(255,255,255,0.06)',
+      background: disabled ? '#334155' : primary ? '#1a3cef' : 'rgba(255,255,255,0.06)',
       color: 'white', fontWeight: primary ? 700 : 600, fontSize: 14,
       cursor: disabled ? 'default' : 'pointer',
     }}>
@@ -137,6 +138,7 @@ export default function CameraCapture({
       background: 'rgba(15,23,42,0.88)', borderRadius: 18,
       border: '1px solid rgba(255,255,255,0.12)', backdropFilter: 'blur(18px)',
       color: 'white', fontFamily: 'Arial',
+      ...style,
     }}>
       <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 6 }}>{title}</div>
       <div style={{ fontSize: 13, opacity: 0.68, marginBottom: 16 }}>{subtitle}</div>

@@ -40,6 +40,8 @@ export default function CoverageOverlay({ glbUrl, coverageMap }) {
           new THREE.MeshBasicMaterial({ color, wireframe: true, transparent: true, opacity }));
         child.add(wireMesh);
       });
+    }, undefined, (err) => {
+      console.warn('[CoverageOverlay] GLB not found, skipping overlay:', err.message);
     });
 
     let animId;

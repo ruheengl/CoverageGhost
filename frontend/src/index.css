@@ -22,9 +22,14 @@
   --font-mono: 'DM Mono', monospace;
 }
 
+html {
+  --xr-background-material: transparent;
+}
+
 html, body, #root {
   width: 100%; height: 100%; overflow: hidden;
   font-family: var(--font);
+  background: transparent;
 }
 
 button { font-family: var(--font); cursor: pointer; border: none; outline: none; }
@@ -62,3 +67,16 @@ input { font-family: var(--font); outline: none; border: none; }
   to { opacity: 1; transform: translateY(0); }
 }
 .fade-up { animation: fadeUp 0.3s ease forwards; }
+
+.spatial-btn {
+  transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1),
+              box-shadow 0.18s ease;
+  cursor: pointer;
+}
+.spatial-btn:hover {
+  transform: translateY(-2px) scale(1.04);
+  box-shadow: 0 10px 32px rgba(13, 148, 136, 0.45);
+}
+.spatial-btn:active {
+  transform: translateY(1px) scale(0.97);
+}

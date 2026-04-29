@@ -3,6 +3,7 @@ const router = express.Router();
 const fs = require('fs');
 const path = require('path');
 const ocrPrompt = require('../prompts/ocrPrompt');
+const registrationOcrPrompt = require('../prompts/registrationOcrPrompt');
 
 const DEBUG_DIR = path.join(__dirname, '../debug-images');
 if (!fs.existsSync(DEBUG_DIR)) fs.mkdirSync(DEBUG_DIR);
@@ -24,9 +25,11 @@ router.post('/', async (req, res) => {
     // fs.writeFileSync(path.join(DEBUG_DIR, filename), Buffer.from(imageBase64, 'base64'));
     // console.log(`[DEBUG] OCR image saved: debug-images/${filename} (${Math.round(imageBase64.length * 0.75 / 1024)}KB)`);
 
+    const prompt = document_type === 'vehicle_registration' ? registrationOcrPrompt : ocrPrompt;
+
     const data = await createChatCompletion({
       messages: [
-        { role: 'system', content: ocrPrompt },
+        { role: 'system', content: prompt },
         buildImageMessage({
           promptText: `Extract fields from this ${document_type} document.`,
           imageBase64,
