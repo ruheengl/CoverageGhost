@@ -9,7 +9,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "spatial": "webspatial-builder run --bundle-id=com.webspatial.lumen --base=\"https://localhost:5173/\"",
-    "spatial:device": "webspatial-builder build --manifest=public/app.webmanifest --bundle-id=com.webspatial.lumen --teamId=6FD7NQC7ZL --base=\"https://10.18.167.137:5173/\" --buildType=device"
+    "spatial:device": "webspatial-builder build --manifest=public/app.webmanifest --bundle-id=com.webspatial.lumen --teamId=6FD7NQC7ZL --base=\"https://10.179.119.137:5173/\" --buildType=device"
   },
   "dependencies": {
     "@mkkellogg/gaussian-splats-3d": "^0.4.7",
