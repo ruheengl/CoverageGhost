@@ -66,7 +66,7 @@ npm run spatial:device
 **Then in Xcode:**
 - Open the generated project:
   ```
-  node_modules/.webspatial-builder-temp/platform-visionos/project/web-spatial.xcodeproj
+  ! open /Users/rathod-dhruv/Downloads/CoverageGhost/frontend/node_modules/.webspatial-builder-temp/platform-visionos/project/web-spatial.xcodeproj
   ```
 - Select your Vision Pro as the run destination
 - Press **⌘R** to build and install on device
