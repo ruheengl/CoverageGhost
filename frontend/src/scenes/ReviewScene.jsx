@@ -4,21 +4,25 @@ import SideNav from '../components/SideNav';
 import GaussianViewer from '../components/GaussianViewer';
 
 const CARD = {
-  background: 'rgba(30,30,40,0.70)',
-  backdropFilter: 'blur(20px)',
-  WebkitBackdropFilter: 'blur(20px)',
+  background: 'rgba(93,93,93,0.80)',
+  backdropFilter: 'blur(24px)',
+  WebkitBackdropFilter: 'blur(24px)',
   borderRadius: 20,
-  border: '1px solid rgba(255,255,255,0.10)',
+  border: '1px solid rgba(255,255,255,0.14)',
   boxShadow: '0 8px 40px rgba(0,0,0,0.4)',
 };
 
-const DIVIDER = { height: 1, background: 'rgba(255,255,255,0.10)', margin: '14px 0' };
+const DIVIDER = { height: 1, background: 'rgba(255,255,255,0.10)', margin: '16px 0' };
+const TEXT_MUTED = 'rgba(255,255,255,0.45)';
+const TEXT_SECONDARY = 'rgba(255,255,255,0.6)';
 
 export default function ReviewScene({ claim, damageData, coverageDecisions = [], splatUrl, onView3D }) {
   const [submitted, setSubmitted] = useState(false);
-  const [show3D, setShow3D] = useState(true);
+  const [show3D] = useState(true);
   const [frames, setFrames] = useState([]);
   const [lightboxIdx, setLightboxIdx] = useState(null);
+  void damageData;
+  void coverageDecisions;
 
   useEffect(() => {
     fetch('/api/scan-frames/latest')
@@ -37,14 +41,19 @@ export default function ReviewScene({ claim, damageData, coverageDecisions = [],
         {/* ── Report card ── */}
         <div style={{ ...CARD, padding: 20, width: 300 }}>
           {/* Header */}
-          <div style={{ color: 'white', fontSize: 17, fontWeight: 700 }}>Report Generation</div>
-          <div style={{ color: 'rgba(255,255,255,0.45)', fontSize: 12, marginTop: 3 }}>
+          <div style={{ color: 'white', fontSize: 19, fontWeight: 700 }}>Report Generation</div>
+          <div style={{ color: TEXT_MUTED, fontSize: 13, marginTop: 4 }}>
             AI generated claim report of the incident you just recorded.
           </div>
           <div style={DIVIDER} />
 
           {/* Claim report image */}
-          <div style={{ borderRadius: 10, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.08)' }}>
+          <div style={{
+            borderRadius: 10,
+            overflow: 'hidden',
+            border: '1px solid rgba(255,255,255,0.14)',
+            background: 'rgba(240,241,245,0.95)',
+          }}>
             <img
               src="/assets/claim-report.png"
               alt="Claim Report"
@@ -58,10 +67,10 @@ export default function ReviewScene({ claim, damageData, coverageDecisions = [],
           {submitted ? (
             <div style={{
               padding: '12px', borderRadius: 12, textAlign: 'center',
-              background: 'rgba(26,60,239,0.18)', border: '1px solid rgba(26,60,239,0.30)',
+              background: 'rgba(26,60,239,0.20)', border: '1px solid rgba(26,60,239,0.36)',
             }}>
               <div style={{ color: '#ffffff', fontWeight: 700, fontSize: 13 }}>✓ Report Submitted</div>
-              <div style={{ color: 'rgba(255,255,255,0.40)', fontSize: 11, marginTop: 3 }}>
+              <div style={{ color: TEXT_MUTED, fontSize: 11, marginTop: 3 }}>
                 Sent to HQ · {claim?.claimId}
               </div>
             </div>
@@ -96,7 +105,7 @@ export default function ReviewScene({ claim, damageData, coverageDecisions = [],
               <div style={{
                 width: '100%', height: '100%',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                color: 'rgba(255,255,255,0.35)', fontSize: 13,
+                color: TEXT_MUTED, fontSize: 13,
               }}>
                 2D View of GS
               </div>
@@ -106,7 +115,7 @@ export default function ReviewScene({ claim, damageData, coverageDecisions = [],
           {/* Captured frames grid — 4 × 3 */}
           {frames.length > 0 && (
             <div>
-              <div style={{ color: 'rgba(255,255,255,0.40)', fontSize: 11, fontWeight: 600, marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+              <div style={{ color: TEXT_SECONDARY, fontSize: 11, fontWeight: 600, marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                 Captured · {frames.length}
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
@@ -116,8 +125,8 @@ export default function ReviewScene({ claim, damageData, coverageDecisions = [],
                     onClick={() => setLightboxIdx(i)}
                     style={{
                       aspectRatio: '1', borderRadius: 8, overflow: 'hidden',
-                      background: 'rgba(30,30,40,0.70)',
-                      border: '1px solid rgba(255,255,255,0.08)',
+                      background: 'rgba(93,93,93,0.80)',
+                      border: '1px solid rgba(255,255,255,0.14)',
                       cursor: 'pointer',
                     }}
                   >
@@ -133,7 +142,7 @@ export default function ReviewScene({ claim, damageData, coverageDecisions = [],
           )}
 
           {frames.length === 0 && (
-            <div style={{ color: 'rgba(255, 255, 255, 0.5)', fontSize: 12, textAlign: 'center', padding: '16px 0' }}>
+            <div style={{ color: TEXT_MUTED, fontSize: 12, textAlign: 'center', padding: '16px 0' }}>
               No captured images found.<br />Restart task to capture images.
             </div>
           )}
@@ -145,7 +154,9 @@ export default function ReviewScene({ claim, damageData, coverageDecisions = [],
         <div
           onClick={() => setLightboxIdx(null)}
           style={{
-            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)',
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.78)',
+            backdropFilter: 'blur(16px)',
+            WebkitBackdropFilter: 'blur(16px)',
             zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center',
           }}
         >
@@ -165,8 +176,9 @@ export default function ReviewScene({ claim, damageData, coverageDecisions = [],
                 key={label}
                 onClick={e => { e.stopPropagation(); action(); }}
                 style={{
-                  background: danger ? 'rgba(239,68,68,0.30)' : 'rgba(255,255,255,0.12)',
-                  border: 'none', borderRadius: 8, color: 'white',
+                  background: danger ? 'rgba(248,113,113,0.30)' : 'rgba(93,93,93,0.80)',
+                  border: danger ? '1px solid rgba(248,113,113,0.35)' : '1px solid rgba(255,255,255,0.14)',
+                  borderRadius: 8, color: 'white',
                   padding: '8px 14px', cursor: 'pointer', fontSize: 15,
                 }}
               >
