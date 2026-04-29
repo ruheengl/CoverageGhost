@@ -389,6 +389,7 @@ function VerifyPolicyDialog({ onDismiss, onVerify }) {
 }
 
 function PolicyActiveScreen({ policyData, onProceed }) {
+  const [loading, setLoading] = useState(false);
   const info = [
     ['Claimant', policyData.claimant || 'James Chen'],
     ['Policy #', policyData.policy_number || 'ALLST-2024-TX-00925'],
@@ -396,6 +397,10 @@ function PolicyActiveScreen({ policyData, onProceed }) {
     ['Valid through', policyData.valid_through || 'Dec 31, 2026'],
     ['Open Claims', policyData.open_claims || 'None'],
   ];
+  async function handleProceed() {
+    setLoading(true);
+    await onProceed();
+  }
   return (
     <div className="fade-up" style={CARD}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
@@ -413,29 +418,19 @@ function PolicyActiveScreen({ policyData, onProceed }) {
         </div>
       ))}
       <div style={DIVIDER} />
-      <button className="btn-primary spatial-btn" onClick={onProceed}
-        style={{ width: '100%', borderRadius: 12, padding: '14px' }}>
-        Proceed to Scan Vehicle
+      <button className="btn-primary spatial-btn" onClick={handleProceed} disabled={loading}
+        style={{ width: '100%', borderRadius: 12, padding: '14px', opacity: loading ? 0.7 : 1 }}>
+        {loading ? 'Starting…' : 'Proceed to Scan Vehicle'}
       </button>
     </div>
   );
 }
 
-function LoadingScreen({ onReady }) {
+function LoadingScreen() {
   const [spinIdx, setSpinIdx] = useState(0);
   useEffect(() => {
     const t = setInterval(() => setSpinIdx(i => (i + 1) % 4), 220);
     return () => clearInterval(t);
-  }, []);
-  useEffect(() => {
-    async function check() {
-      let xr = false;
-      if (!inWebSpatial) {
-        xr = await navigator.xr?.isSessionSupported('immersive-ar').catch(() => false) || false;
-      }
-      onReady(xr);
-    }
-    check();
   }, []);
   return (
     <div className="fade-up" style={CARD}>
@@ -450,7 +445,7 @@ function LoadingScreen({ onReady }) {
 
 // ─── Damage Scan ──────────────────────────────────────────────────────────────
 
-function DamageScanScreen({ claim, onComplete }) {
+function DamageScanScreen({ claim, onComplete, xrSession }) {
   const [stage, setStage] = useState('idle');
   const [coverageDecisions, setCoverageDecisions] = useState([]);
   const [damageData, setDamageData] = useState(null);
@@ -533,7 +528,7 @@ function DamageScanScreen({ claim, onComplete }) {
             <div style={{ fontSize: 17, fontWeight: 600, marginBottom: 8 }}>Starting Immersive Scan</div>
             <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.45)' }}>Launching AR session…</div>
           </div>
-          <ImmersiveScan onCapture={handleImmersiveScan} onExit={() => setImmersiveActive(false)} />
+          <ImmersiveScan onCapture={handleImmersiveScan} onExit={() => setImmersiveActive(false)} xrSession={xrSession} />
         </>
       )}
 
@@ -595,7 +590,7 @@ export default function ScanScene({ claim, onComplete }) {
   const [step, setStep] = useState('task');
   const [driver, setDriver] = useState({});
   const [reg, setReg] = useState({});
-  const [, setXrReady] = useState(false);
+  const [xrSession, setXrSession] = useState(null);
 
   const [policyData] = useState({
     claimant: claim?.adjuster || 'James Chen',
@@ -640,13 +635,22 @@ export default function ScanScene({ claim, onComplete }) {
           <VerifyPolicyDialog onDismiss={() => setStep('vehicle-reg')} onVerify={() => setStep('policy-active')} />
         )}
         {step === 'policy-active' && (
-          <PolicyActiveScreen policyData={policyData} onProceed={() => setStep('loading')} />
+          <PolicyActiveScreen policyData={policyData} onProceed={async () => {
+            setStep('loading');
+            let session = null;
+            try {
+              session = await navigator.xr.requestSession('immersive-ar', {
+                requiredFeatures: ['local-floor', 'unbounded'],
+                optionalFeatures: ['hit-test', 'hand-tracking'],
+              });
+            } catch (e) { console.warn('[ScanScene] requestSession failed:', e.message); }
+            setXrSession(session);
+            setStep('scan');
+          }} />
         )}
-        {step === 'loading' && (
-          <LoadingScreen onReady={(xr) => { setXrReady(xr); setStep('scan'); }} />
-        )}
+        {step === 'loading' && <LoadingScreen />}
         {step === 'scan' && (
-          <DamageScanScreen claim={claim} onComplete={onComplete} />
+          <DamageScanScreen claim={claim} onComplete={onComplete} xrSession={xrSession} />
         )}
       </div>
     </div>

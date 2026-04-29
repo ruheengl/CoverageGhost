@@ -11,7 +11,7 @@ const WHEEL_PHASES = ['setup-fl', 'setup-fr', 'setup-rr', 'setup-rl'];
 const WHEEL_LABELS = ['Front-Left\nWheel', 'Front-Right\nWheel', 'Rear-Right\nWheel', 'Rear-Left\nWheel'];
 const WHEEL_COLORS = [0x1a3cef, 0x1a3cef, 0x1a3cef, 0x1a3cef];
 
-export default function ImmersiveScan({ onCapture, onExit }) {
+export default function ImmersiveScan({ onCapture, onExit, xrSession: providedSession }) {
   const videoRef = useRef(null);
   const sessionRef = useRef(null);
 
@@ -705,15 +705,18 @@ export default function ImmersiveScan({ onCapture, onExit }) {
         if (videoRef.current) { videoRef.current.srcObject = stream; await videoRef.current.play(); }
       } catch (e) { console.warn('[ImmersiveScan] camera:', e.message); }
 
-      try {
-        // unbounded disables Guardian boundary warnings without changing the coordinate system.
-        // local-floor keeps y=0 at the physical floor, which rayFloorIntersect depends on.
-        session = await navigator.xr.requestSession('immersive-ar', {
-          requiredFeatures: ['local-floor', 'unbounded'],
-          optionalFeatures: ['hit-test', 'hand-tracking'],
-        });
+      if (providedSession) {
+        session = providedSession;
         sessionRef.current = session;
-      } catch (e) { console.error('[ImmersiveScan] XR:', e); onExit(); return; }
+      } else {
+        try {
+          session = await navigator.xr.requestSession('immersive-ar', {
+            requiredFeatures: ['local-floor', 'unbounded'],
+            optionalFeatures: ['hit-test', 'hand-tracking'],
+          });
+          sessionRef.current = session;
+        } catch (e) { console.error('[ImmersiveScan] XR:', e); onExit(); return; }
+      }
 
       renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
       renderer.setPixelRatio(window.devicePixelRatio);
