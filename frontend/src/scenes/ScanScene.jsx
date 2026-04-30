@@ -527,18 +527,7 @@ export default function ScanScene({ claim, onComplete }) {
       )}
 
       {step === 'scan' && (
-        <>
-          <div style={{
-            position: 'fixed', inset: 0, background: '#020617', zIndex: 50,
-            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'white',
-            pointerEvents: 'none',
-          }}>
-            <div style={{ fontSize: 38, color: '#1a3cef', marginBottom: 16 }}>{SPIN[spinIdx]}</div>
-            <div style={{ fontSize: 17, fontWeight: 600, marginBottom: 8 }}>Starting Immersive Scan</div>
-            <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.45)' }}>Launching AR session…</div>
-          </div>
-          <ImmersiveScan onCapture={handleImmersiveScan} onExit={() => { setScanError(''); setStep('retry'); }} xrSession={xrSession} />
-        </>
+        <ImmersiveScan onCapture={handleImmersiveScan} onExit={() => { setScanError(''); setStep('retry'); }} xrSession={xrSession} />
       )}
 
       <div style={{ position: 'relative', zIndex: 10 }}>
@@ -597,7 +586,12 @@ export default function ScanScene({ claim, onComplete }) {
               return;
             }
             setStep('loading');
-            // Fetch geolocation BEFORE XR session — permission dialogs during XR exit the session on Quest
+            // Start XR session immediately — must be called within user gesture context before any await
+            const sessionPromise = navigator.xr?.requestSession('immersive-ar', {
+              requiredFeatures: ['local-floor', 'unbounded'],
+              optionalFeatures: ['hit-test', 'hand-tracking'],
+            }).catch(e => { console.warn('[ScanScene] requestSession failed:', e.message); return null; });
+            // Geolocation in parallel — permission dialogs during XR exit the session on Quest
             if (navigator.geolocation) {
               await new Promise(resolve => {
                 const id = navigator.geolocation.watchPosition(
@@ -608,13 +602,7 @@ export default function ScanScene({ claim, onComplete }) {
                 setTimeout(resolve, 8000);
               });
             }
-            let session = null;
-            try {
-              session = await navigator.xr.requestSession('immersive-ar', {
-                requiredFeatures: ['local-floor', 'unbounded'],
-                optionalFeatures: ['hit-test', 'hand-tracking'],
-              });
-            } catch (e) { console.warn('[ScanScene] requestSession failed:', e.message); }
+            const session = await sessionPromise;
             setXrSession(session);
             setStep('scan');
           }} />
