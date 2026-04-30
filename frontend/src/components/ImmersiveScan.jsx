@@ -293,20 +293,17 @@ export default function ImmersiveScan({ onCapture, onExit, xrSession: providedSe
 
     // ── Frame capture + combined API ─────────────────────────────────────────
 
-    async function captureFrame(video, bIdx, angleDeg) {
+  function captureFrame(video, bIdx, angleDeg) {
+      if (buckets[bIdx]) return; // already claimed — one image per bucket
       try {
         const w = video.videoWidth || 640, h = video.videoHeight || 480;
         const off = document.createElement('canvas');
         off.width = w; off.height = h;
-        const c = off.getContext('2d');
-        c.drawImage(video, 0, 0);
-        // Only capture once per bucket — first frame wins
-        if (!buckets[bIdx]) {
-          const b64 = off.toDataURL('image/jpeg', 0.88).split(',')[1];
-          const blob = await new Promise(res => off.toBlob(res, 'image/jpeg', 0.88));
-          buckets[bIdx] = { frameBlob: blob, sharpness: 0, angle: angleDeg };
-          uploadAndAnalyze(b64, angleDeg, bIdx);
-        }
+        off.getContext('2d').drawImage(video, 0, 0);
+        const b64 = off.toDataURL('image/jpeg', 0.88).split(',')[1];
+        buckets[bIdx] = { angle: angleDeg }; // claim synchronously before any async
+        bucketCooldowns[bIdx] = Infinity;    // stop outer loop from re-firing this bucket
+        uploadAndAnalyze(b64, angleDeg, bIdx);
       } catch (_) {}
     }
 

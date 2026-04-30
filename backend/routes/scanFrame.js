@@ -16,7 +16,7 @@ router.post('/', async (req, res) => {
     try {
       const dir = path.join(DEBUG_DIR, `scan-${scanId || 'unknown'}`);
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-      const filename = `frame-${String(bucketIndex).padStart(2, '0')}-${Math.round(angle)}deg.jpg`;
+      const filename = `bucket-${String(bucketIndex).padStart(2, '0')}.jpg`;
       fs.writeFileSync(path.join(dir, filename), Buffer.from(frameBase64, 'base64'));
       console.log(`[scanFrame] saved ${filename} (scan ${scanId})`);
     } catch (e) {
