@@ -7,13 +7,15 @@ Return ONLY valid JSON. No preamble, no markdown.
   "document_type": "string",
   "extracted_fields": {
     "name": "string",
+    "age": "string",
     "dob": "string",
     "license_number": "string",
     "policy_number": "string",
     "vehicle_make": "string",
     "vehicle_model": "string",
     "vehicle_year": "string",
-    "address": "string"
+    "address": "string",
+    "validity": "string"
   },
   "confidence": "high | medium | low",
   "unreadable_fields": ["string"]

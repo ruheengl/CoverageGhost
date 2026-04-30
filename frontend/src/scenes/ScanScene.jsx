@@ -122,7 +122,7 @@ function ScanLicenseScreen({ onCapture, onManual }) {
         streamRef.current = stream;
         if (videoRef.current) { videoRef.current.srcObject = stream; videoRef.current.play(); }
       })
-      .catch(() => {});
+      .catch(() => { });
     return () => streamRef.current?.getTracks().forEach(t => t.stop());
   }, []);
 
@@ -219,7 +219,7 @@ function CapturePhotoScreen({ onCapture, onBack }) {
         streamRef.current = stream;
         if (videoRef.current) { videoRef.current.srcObject = stream; videoRef.current.play(); }
       })
-      .catch(() => {});
+      .catch(() => { });
     return () => streamRef.current?.getTracks().forEach(t => t.stop());
   }, []);
 
@@ -243,7 +243,7 @@ function CapturePhotoScreen({ onCapture, onBack }) {
         streamRef.current = stream;
         if (videoRef.current) { videoRef.current.srcObject = stream; videoRef.current.play(); }
       })
-      .catch(() => {});
+      .catch(() => { });
   }
 
   return (
@@ -289,7 +289,7 @@ function ScanVehicleRegScreen({ onCapture, onManual }) {
         streamRef.current = stream;
         if (videoRef.current) { videoRef.current.srcObject = stream; videoRef.current.play(); }
       })
-      .catch(() => {});
+      .catch(() => { });
     return () => streamRef.current?.getTracks().forEach(t => t.stop());
   }, []);
 
@@ -364,7 +364,7 @@ function RegistrationDetailsResult({ reg, onContinue }) {
       ))}
       <div style={DIVIDER} />
       <div style={{ display: 'flex', gap: 12 }}>
-        <button className="btn-secondary spatial-btn" onClick={() => {}} style={{ flex: 1 }}>Edit Details</button>
+        <button className="btn-secondary spatial-btn" onClick={() => { }} style={{ flex: 1 }}>Edit Details</button>
         <button className="btn-primary spatial-btn" onClick={onContinue} style={{ flex: 1, borderRadius: 12, padding: '13px' }}>Continue</button>
       </div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, marginTop: 14 }}>
@@ -543,7 +543,7 @@ export default function ScanScene({ claim, onComplete }) {
 
       <div style={{ position: 'relative', zIndex: 10 }}>
         {step === 'task' && (
-          <TaskCard onStart={() => setStep('uiq')} onDismiss={() => {}} />
+          <TaskCard onStart={() => setStep('uiq')} onDismiss={() => { }} />
         )}
         {step === 'uiq' && (
           <UIQTokenScreen onVerify={() => setStep('driver-choice')} />
@@ -553,7 +553,19 @@ export default function ScanScene({ claim, onComplete }) {
         )}
         {step === 'license' && (
           <ScanLicenseScreen
-            onCapture={(data) => { if (data) setDriver(data); setStep('driver'); }}
+            onCapture={(data) => {
+              if (data) {
+                const fields = data.extracted_fields || data;
+                setDriver({
+                  name: fields.name,
+                  age: fields.age || fields.dob,
+                  license: fields.license || fields.license_number,
+                  address: fields.address,
+                  validity: fields.validity || fields.expiration_date || fields.valid_until
+                });
+              }
+              setStep('driver');
+            }}
             onManual={() => setStep('driver')}
           />
         )}
@@ -622,43 +634,43 @@ export default function ScanScene({ claim, onComplete }) {
         )}
         {step === 'coverage' && (
           <div style={{ ...CARD, maxHeight: '80vh', overflowY: 'auto', position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', zIndex: 10000 }}>
-              <div style={{ color: 'white', fontSize: 19, fontWeight: 700, marginBottom: 4 }}>Coverage Analysis</div>
-              <div style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13, marginBottom: 16 }}>
-                22 assessed
+            <div style={{ color: 'white', fontSize: 19, fontWeight: 700, marginBottom: 4 }}>Coverage Analysis</div>
+            <div style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13, marginBottom: 16 }}>
+              22 assessed
+            </div>
+            <div style={DIVIDER} />
+            {coverageDecisions.map((d, i) => (
+              <div key={i} style={{
+                marginBottom: 10, padding: '10px 12px', borderRadius: 10,
+                background: 'rgba(255,255,255,0.05)',
+                borderLeft: `3px solid ${STATUS_COLORS[d.coverage_status] || '#94a3b8'}`,
+              }}>
+                <div style={{ fontWeight: 600, fontSize: 13, color: 'white', marginBottom: 2 }}>{d.area_name}</div>
+                <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.55)' }}>{d.reason}</div>
               </div>
-              <div style={DIVIDER} />
-              {coverageDecisions.map((d, i) => (
-                <div key={i} style={{
-                  marginBottom: 10, padding: '10px 12px', borderRadius: 10,
-                  background: 'rgba(255,255,255,0.05)',
-                  borderLeft: `3px solid ${STATUS_COLORS[d.coverage_status] || '#94a3b8'}`,
-                }}>
-                  <div style={{ fontWeight: 600, fontSize: 13, color: 'white', marginBottom: 2 }}>{d.area_name}</div>
-                  <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.55)' }}>{d.reason}</div>
-                </div>
-              ))}
-              {coverageDecisions.length === 0 && ([
-                { area_name: 'Rear bumper', coverage_status: 'blue', reason: 'Collision damage covered under comprehensive policy.' },
-                { area_name: 'Left rear door', coverage_status: 'blue', reason: 'Partial coverage — pre-existing damage noted, adjuster review required.' },
-                { area_name: 'Rear windshield', coverage_status: 'blue', reason: 'Glass damage excluded under current deductible threshold.' },
-              ].map((d, i) => (
-                <div key={i} style={{
-                  marginBottom: 10, padding: '10px 12px', borderRadius: 10,
-                  background: 'rgba(255,255,255,0.05)',
-                  borderLeft: `3px solid ${STATUS_COLORS[d.coverage_status] || '#94a3b8'}`,
-                }}>
-                  <div style={{ fontWeight: 600, fontSize: 13, color: 'white', marginBottom: 2 }}>{d.area_name}</div>
-                  <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.55)' }}>{d.reason}</div>
-                </div>
-              )))}
-              <div style={DIVIDER} />
-              <button
-                className="btn-primary spatial-btn"
-                onClick={() => onComplete(damageData, coverageDecisions, covMap, SPLAT_URL, voiceNotes)}
-                style={{ width: '100%', borderRadius: 12, padding: '13px' }}
-              >
-                Generate Report
-              </button>
+            ))}
+            {coverageDecisions.length === 0 && ([
+              { area_name: 'Rear bumper', coverage_status: 'blue', reason: 'Collision damage covered under comprehensive policy.' },
+              { area_name: 'Left rear door', coverage_status: 'blue', reason: 'Partial coverage — pre-existing damage noted, adjuster review required.' },
+              { area_name: 'Rear windshield', coverage_status: 'blue', reason: 'Glass damage excluded under current deductible threshold.' },
+            ].map((d, i) => (
+              <div key={i} style={{
+                marginBottom: 10, padding: '10px 12px', borderRadius: 10,
+                background: 'rgba(255,255,255,0.05)',
+                borderLeft: `3px solid ${STATUS_COLORS[d.coverage_status] || '#94a3b8'}`,
+              }}>
+                <div style={{ fontWeight: 600, fontSize: 13, color: 'white', marginBottom: 2 }}>{d.area_name}</div>
+                <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.55)' }}>{d.reason}</div>
+              </div>
+            )))}
+            <div style={DIVIDER} />
+            <button
+              className="btn-primary spatial-btn"
+              onClick={() => onComplete(damageData, coverageDecisions, covMap, SPLAT_URL, voiceNotes)}
+              style={{ width: '100%', borderRadius: 12, padding: '13px' }}
+            >
+              Generate Report
+            </button>
           </div>
         )}
       </div>
