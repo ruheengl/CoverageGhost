@@ -624,28 +624,32 @@ export default function ScanScene({ claim, onComplete }) {
           <div style={{ ...CARD, maxHeight: '80vh', overflowY: 'auto', position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', zIndex: 10000 }}>
             <div style={{ color: 'white', fontSize: 19, fontWeight: 700, marginBottom: 4 }}>Coverage Analysis</div>
             <div style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13, marginBottom: 16 }}>
-              22 assessed
+              {coverageDecisions.length > 0 ? `${coverageDecisions.length} area${coverageDecisions.length !== 1 ? 's' : ''} assessed` : 'Sample data'}
             </div>
             <div style={DIVIDER} />
-            {coverageDecisions.map((d, i) => (
+            {coverageDecisions.length > 0 ? coverageDecisions.map((d, i) => (
               <div key={i} style={{
                 marginBottom: 10, padding: '10px 12px', borderRadius: 10,
                 background: 'rgba(255,255,255,0.05)',
-                borderLeft: `3px solid ${STATUS_COLORS[d.coverage_status] || '#94a3b8'}`,
+                borderLeft: `3px solid ${STATUS_COLORS[d.color] || '#94a3b8'}`,
               }}>
                 <div style={{ fontWeight: 600, fontSize: 13, color: 'white', marginBottom: 2 }}>{d.area_name}</div>
                 <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.55)' }}>{d.reason}</div>
+                {d.estimated_payout_usd && (
+                  <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 4 }}>
+                    Est. payout: ${d.estimated_payout_usd.min}–${d.estimated_payout_usd.max}
+                  </div>
+                )}
               </div>
-            ))}
-            {coverageDecisions.length === 0 && ([
-              { area_name: 'Rear bumper', coverage_status: 'blue', reason: 'Collision damage covered under comprehensive policy.' },
-              { area_name: 'Left rear door', coverage_status: 'blue', reason: 'Partial coverage — pre-existing damage noted, adjuster review required.' },
-              { area_name: 'Rear windshield', coverage_status: 'blue', reason: 'Glass damage excluded under current deductible threshold.' },
+            )) : ([
+              { area_name: 'Rear bumper', color: 'green', reason: 'Collision damage covered under comprehensive policy.' },
+              { area_name: 'Left rear door', color: 'amber', reason: 'Partial coverage — pre-existing damage noted, adjuster review required.' },
+              { area_name: 'Rear windshield', color: 'green', reason: 'Glass damage excluded under current deductible threshold.' },
             ].map((d, i) => (
               <div key={i} style={{
                 marginBottom: 10, padding: '10px 12px', borderRadius: 10,
                 background: 'rgba(255,255,255,0.05)',
-                borderLeft: `3px solid ${STATUS_COLORS[d.coverage_status] || '#94a3b8'}`,
+                borderLeft: `3px solid ${STATUS_COLORS[d.color] || '#94a3b8'}`,
               }}>
                 <div style={{ fontWeight: 600, fontSize: 13, color: 'white', marginBottom: 2 }}>{d.area_name}</div>
                 <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.55)' }}>{d.reason}</div>
